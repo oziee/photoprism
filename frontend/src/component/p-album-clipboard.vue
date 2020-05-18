@@ -27,9 +27,10 @@
                         dark
                         small
                         :title="labels.download"
-                        color="teal accent-4"
+                        color="download"
                         @click.stop="download()"
                         class="p-album-clipboard-download"
+                        v-if="$config.feature('download')"
                         :disabled="selection.length !== 1"
                 >
                     <v-icon>cloud_download</v-icon>
@@ -39,7 +40,7 @@
                         fab
                         dark
                         small
-                        color="delete"
+                        color="remove"
                         :title="labels.delete"
                         @click.stop="dialog.delete = true"
                         :disabled="selection.length === 0"
@@ -73,6 +74,7 @@
         props: {
             selection: Array,
             refresh: Function,
+            clearSelection: Function,
         },
         data() {
             return {
@@ -90,7 +92,7 @@
         },
         methods: {
             clearClipboard() {
-                this.selection.splice(0, this.selection.length);
+                this.clearSelection();
                 this.expanded = false;
             },
             batchDelete() {
@@ -101,7 +103,6 @@
             onDeleted() {
                 Notify.success(this.$gettext("Albums deleted"));
                 this.clearClipboard();
-                this.refresh();
             },
             download() {
                 if(this.selection.length !== 1) {

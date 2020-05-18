@@ -6,16 +6,17 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/photoprism/photoprism/pkg/fastwalk"
 	"github.com/stretchr/testify/assert"
 )
 
 var modelPath, _ = filepath.Abs("../../assets/resources/nsfw")
 
-var detector = NewDetector(modelPath)
+var detector = New(modelPath)
 
-func TestNSFW(t *testing.T) {
+func TestIsSafe(t *testing.T) {
 	detect := func(filename string) Labels {
-		result, err := detector.LabelsFromFile(filename)
+		result, err := detector.File(filename)
 
 		if err != nil {
 			t.Fatalf(err.Error())
@@ -60,12 +61,8 @@ func TestNSFW(t *testing.T) {
 		"zebra_green_brown.jpg": {0.24, 0.01, 0.73, 0.004, 0.001},
 	}
 
-	err := filepath.Walk("testdata", func(filename string, fileInfo os.FileInfo, err error) error {
-		if err != nil {
-			return nil
-		}
-
-		if fileInfo.IsDir() || strings.HasPrefix(filepath.Base(filename), ".") {
+	if err := fastwalk.Walk("testdata", func(filename string, info os.FileMode) error {
+		if info.IsDir() || strings.HasPrefix(filepath.Base(filename), ".") {
 			return nil
 		}
 
@@ -94,9 +91,33 @@ func TestNSFW(t *testing.T) {
 		})
 
 		return nil
-	})
-
-	if err != nil {
-		t.Log(err.Error())
+	}); err != nil {
+		t.Fatal(err)
 	}
+}
+
+func TestNSFW(t *testing.T) {
+	porn := Labels{0, 0, 0.11, 0.88, 0}
+	sexy := Labels{0, 0, 0.2, 0.59, 0.98}
+	max := Labels{0, 0.999, 0.1, 0.999, 0.999}
+	drawing := Labels{0.999, 0, 0, 0, 0}
+	hentai := Labels{0, 0.80, 0.2, 0, 0}
+
+	assert.Equal(t, true, porn.NSFW(ThresholdSafe))
+	assert.Equal(t, true, sexy.NSFW(ThresholdSafe))
+	assert.Equal(t, true, hentai.NSFW(ThresholdSafe))
+	assert.Equal(t, false, drawing.NSFW(ThresholdSafe))
+	assert.Equal(t, true, max.NSFW(ThresholdSafe))
+
+	assert.Equal(t, true, porn.NSFW(ThresholdMedium))
+	assert.Equal(t, true, sexy.NSFW(ThresholdMedium))
+	assert.Equal(t, false, hentai.NSFW(ThresholdMedium))
+	assert.Equal(t, false, drawing.NSFW(ThresholdMedium))
+	assert.Equal(t, true, max.NSFW(ThresholdMedium))
+
+	assert.Equal(t, false, porn.NSFW(ThresholdHigh))
+	assert.Equal(t, false, sexy.NSFW(ThresholdHigh))
+	assert.Equal(t, false, hentai.NSFW(ThresholdHigh))
+	assert.Equal(t, false, drawing.NSFW(ThresholdHigh))
+	assert.Equal(t, true, max.NSFW(ThresholdHigh))
 }

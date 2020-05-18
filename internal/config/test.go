@@ -3,48 +3,53 @@ package config
 import (
 	"context"
 	"flag"
-	"fmt"
 	"os"
 	"sync"
 	"testing"
+	"time"
 
 	_ "github.com/jinzhu/gorm/dialects/mysql"
 	_ "github.com/jinzhu/gorm/dialects/sqlite"
-	"github.com/photoprism/photoprism/internal/file"
 	"github.com/photoprism/photoprism/internal/thumb"
-	"github.com/sirupsen/logrus"
+	"github.com/photoprism/photoprism/pkg/capture"
+	"github.com/photoprism/photoprism/pkg/fs"
 	"github.com/urfave/cli"
 )
 
+// define constants used for testing the config package
 const (
 	TestDataZip  = "/tmp/photoprism/testdata.zip"
 	TestDataURL  = "https://dl.photoprism.org/fixtures/testdata.zip"
-	TestDataHash = "a217ac5242de2189ffb414d819b628c7957c67d7"
+	TestDataHash = "be394d5bee8a5634d415e9e0663eef20b5604510" // sha1sum
 )
 
 var testConfig *Config
-var once sync.Once
+var testConfigOnce sync.Once
+var testConfigMutex sync.Mutex
 
 func testDataPath(assetsPath string) string {
 	return assetsPath + "/testdata"
 }
 
+// NewTestParams inits valid params used for testing
 func NewTestParams() *Params {
-	assetsPath := file.ExpandFilename("../../assets")
+	assetsPath := fs.Abs("../../assets")
 
 	testDataPath := testDataPath(assetsPath)
 
 	c := &Params{
+		Debug:          true,
 		Public:         true,
 		ReadOnly:       false,
-		HideNSFW:       false,
+		DetectNSFW:     true,
 		UploadNSFW:     false,
 		DarktableBin:   "/usr/bin/darktable-cli",
+		ExifToolBin:    "/usr/bin/exiftool",
 		AssetsPath:     assetsPath,
 		CachePath:      testDataPath + "/cache",
 		OriginalsPath:  testDataPath + "/originals",
 		ImportPath:     testDataPath + "/import",
-		ExportPath:     testDataPath + "/export",
+		TempPath:       testDataPath + "/temp",
 		DatabaseDriver: "mysql",
 		DatabaseDsn:    "photoprism:photoprism@tcp(photoprism-db:4001)/photoprism?parseTime=true",
 	}
@@ -52,8 +57,9 @@ func NewTestParams() *Params {
 	return c
 }
 
+// NewTestParamsError inits invalid params used for testing
 func NewTestParamsError() *Params {
-	assetsPath := file.ExpandFilename("../..")
+	assetsPath := fs.Abs("../..")
 
 	testDataPath := testDataPath("../../assets")
 
@@ -63,7 +69,7 @@ func NewTestParamsError() *Params {
 		CachePath:      testDataPath + "/cache",
 		OriginalsPath:  testDataPath + "/originals",
 		ImportPath:     testDataPath + "/import",
-		ExportPath:     testDataPath + "/export",
+		TempPath:       testDataPath + "/temp",
 		DatabaseDriver: "mysql",
 		DatabaseDsn:    "photoprism:photoprism@tcp(photoprism-db:4001)/photoprism?parseTime=true",
 	}
@@ -71,50 +77,54 @@ func NewTestParamsError() *Params {
 	return c
 }
 
+func SetNewTestConfig() {
+	testConfig = NewTestConfig()
+}
+
+// TestConfig inits the global testConfig if it was not already initialised
 func TestConfig() *Config {
-	once.Do(func() {
-		testConfig = NewTestConfig()
-	})
+	testConfigOnce.Do(SetNewTestConfig)
 
 	return testConfig
 }
 
+// NewTestConfig inits valid config used for testing
 func NewTestConfig() *Config {
-	log.SetLevel(logrus.DebugLevel)
+	defer log.Debug(capture.Time(time.Now(), "config: new test config created"))
 
-	c := &Config{config: NewTestParams()}
-	err := c.Init(context.Background())
-	if err != nil {
-		log.Fatalf("failed init config: %v", err)
+	testConfigMutex.Lock()
+	defer testConfigMutex.Unlock()
+
+	c := &Config{params: NewTestParams()}
+	c.initSettings()
+
+	if err := c.Init(context.Background()); err != nil {
+		log.Fatalf("config: %s", err.Error())
 	}
 
-	c.DropTables()
+	c.InitTestDb()
 
-	c.MigrateDb()
-
-	c.ImportSQL(c.ExamplesPath() + "/fixtures.sql")
-
-	thumb.JpegQuality = c.ThumbQuality()
-	thumb.MaxWidth = c.ThumbSize()
-	thumb.MaxHeight = c.ThumbSize()
+	thumb.Size = c.ThumbSize()
+	thumb.Limit = c.ThumbLimit()
+	thumb.Filter = c.ThumbFilter()
+	thumb.JpegQuality = c.JpegQuality()
 
 	return c
 }
 
+// NewTestErrorConfig inits invalid config used for testing
 func NewTestErrorConfig() *Config {
-	log.SetLevel(logrus.DebugLevel)
-
-	c := &Config{config: NewTestParamsError()}
+	c := &Config{params: NewTestParamsError()}
 	err := c.Init(context.Background())
 	if err != nil {
-		log.Fatalf("failed init config: %v", err)
+		log.Fatalf("config: %s", err.Error())
 	}
 
-	c.MigrateDb()
+	c.InitDb()
 	return c
 }
 
-// Returns example cli config for testing
+// CliTestContext returns example cli config for testing
 func CliTestContext() *cli.Context {
 	config := NewTestParams()
 
@@ -123,54 +133,81 @@ func CliTestContext() *cli.Context {
 	globalSet.String("config-file", config.ConfigFile, "doc")
 	globalSet.String("assets-path", config.AssetsPath, "doc")
 	globalSet.String("originals-path", config.OriginalsPath, "doc")
+	globalSet.String("import-path", config.OriginalsPath, "doc")
+	globalSet.String("temp-path", config.OriginalsPath, "doc")
+	globalSet.String("cache-path", config.OriginalsPath, "doc")
 	globalSet.String("darktable-cli", config.DarktableBin, "doc")
+	globalSet.Bool("detect-nsfw", config.DetectNSFW, "doc")
 
 	app := cli.NewApp()
+	app.Version = "test"
 
 	c := cli.NewContext(app, globalSet, nil)
 
-	c.Set("config-file", config.ConfigFile)
-	c.Set("assets-path", config.AssetsPath)
-	c.Set("originals-path", config.OriginalsPath)
-	c.Set("darktable-cli", config.DarktableBin)
+	LogError(c.Set("config-file", config.ConfigFile))
+	LogError(c.Set("assets-path", config.AssetsPath))
+	LogError(c.Set("originals-path", config.OriginalsPath))
+	LogError(c.Set("import-path", config.ImportPath))
+	LogError(c.Set("temp-path", config.TempPath))
+	LogError(c.Set("cache-path", config.CachePath))
+	LogError(c.Set("darktable-cli", config.DarktableBin))
+	LogError(c.Set("detect-nsfw", "true"))
 
 	return c
 }
 
+// RemoveTestData deletes files in import, export, originals and cache folders
 func (c *Config) RemoveTestData(t *testing.T) {
-	os.RemoveAll(c.ImportPath())
-	os.RemoveAll(c.ExportPath())
-	os.RemoveAll(c.OriginalsPath())
-	os.RemoveAll(c.CachePath())
+	if err := os.RemoveAll(c.ImportPath()); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.RemoveAll(c.TempPath()); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.RemoveAll(c.OriginalsPath()); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.RemoveAll(c.CachePath()); err != nil {
+		t.Fatal(err)
+	}
 }
 
+// DownloadTestData downloads test data from photoprism.org server
 func (c *Config) DownloadTestData(t *testing.T) {
-	if file.Exists(TestDataZip) {
-		hash := file.Hash(TestDataZip)
+	if fs.FileExists(TestDataZip) {
+		hash := fs.Hash(TestDataZip)
 
 		if hash != TestDataHash {
-			os.Remove(TestDataZip)
-			t.Logf("removed outdated test data zip file (fingerprint %s)\n", hash)
+			if err := os.Remove(TestDataZip); err != nil {
+				t.Fatalf("config: %s", err.Error())
+			}
+
+			t.Logf("config: removed outdated test data zip file (fingerprint %s)", hash)
 		}
 	}
 
-	if !file.Exists(TestDataZip) {
-		fmt.Printf("downloading latest test data zip file from %s\n", TestDataURL)
+	if !fs.FileExists(TestDataZip) {
+		t.Logf("config: downloading latest test data zip file from %s", TestDataURL)
 
-		if err := file.Download(TestDataZip, TestDataURL); err != nil {
-			fmt.Printf("Download failed: %s\n", err.Error())
+		if err := fs.Download(TestDataZip, TestDataURL); err != nil {
+			t.Fatalf("config: test data download failed: %s", err.Error())
 		}
 	}
 }
 
+// UnzipTestData in default test folder
 func (c *Config) UnzipTestData(t *testing.T) {
-	if _, err := file.Unzip(TestDataZip, testDataPath(c.AssetsPath())); err != nil {
-		t.Logf("could not unzip test data: %s\n", err.Error())
+	if _, err := fs.Unzip(TestDataZip, testDataPath(c.AssetsPath())); err != nil {
+		t.Fatalf("config: could not unzip test data: %s", err.Error())
 	}
 }
 
+// InitializeTestData using testing constant
 func (c *Config) InitializeTestData(t *testing.T) {
-	t.Log("initializing test data")
+	defer t.Logf(capture.Time(time.Now(), "config: initialized test data"))
 
 	c.RemoveTestData(t)
 

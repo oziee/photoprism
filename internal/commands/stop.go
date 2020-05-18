@@ -4,21 +4,24 @@ import (
 	"syscall"
 
 	"github.com/photoprism/photoprism/internal/config"
+	"github.com/photoprism/photoprism/pkg/txt"
 	"github.com/sevlyar/go-daemon"
 	"github.com/urfave/cli"
 )
 
-// StopCommand stops the daemon if running.
+// StopCommand is used to register the stop cli command
 var StopCommand = cli.Command{
-	Name:   "stop",
-	Usage:  "Stops daemon",
-	Action: stopAction,
+	Name:    "stop",
+	Aliases: []string{"down"},
+	Usage:   "Stops web server (only in daemon mode)",
+	Action:  stopAction,
 }
 
+// stopAction stops the daemon if it is running.
 func stopAction(ctx *cli.Context) error {
 	conf := config.NewConfig(ctx)
 
-	log.Infof("looking for pid in \"%s\"", conf.PIDFilename())
+	log.Infof("looking for pid in %s", txt.Quote(conf.PIDFilename()))
 
 	dcxt := new(daemon.Context)
 	dcxt.PidFileName = conf.PIDFilename()

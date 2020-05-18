@@ -13,17 +13,15 @@ you have the opportunity to learn Docker, Go, TensorFlow and much more.
 Follow us on [Twitter][twitter] and join our [developers mailing list](https://groups.google.com/a/photoprism.org/forum/#!forum/developers)
 to receive regular project updates, get in contact with other contributors and discuss your ideas. Don't be afraid to ask stupid questions.
 
+Of all the tools we tested, Twitter works best to get and give continuous feedback. Especially polls are amazing for product development.
+
 ## Pull requests ##
 
 Issues labeled [help wanted](https://github.com/photoprism/photoprism/labels/help%20wanted) /
 [easy](https://github.com/photoprism/photoprism/labels/easy) can be good (first) contributions.
-Our [Developer Guide](https://github.com/photoprism/photoprism/wiki) contains all information necessary to get you started.
+Our [Developer Guide](https://docs.photoprism.org/en/latest/developer-guide/) contains all information necessary to get you started.
 
 Our [step-by-step guide](https://github.com/photoprism/photoprism/wiki/Pull-Requests) explains how to submit new features, bugfixes and documentation.
-
-## Funded issues ##
-
-You'll get a small reward for working on [funded issues](https://github.com/photoprism/photoprism/labels/IssueHunt), see [issuehunt.io](https://issuehunt.io/repos/119160553) for details. Note that issue descriptions may be outdated on their site. Rewards are paid out when all [acceptance criteria](https://github.com/photoprism/photoprism/wiki/Issues#user-stories) prioritized as MUST are met and your pull request was successfully merged.
 
 ## Feature requests ##
 
@@ -32,7 +30,7 @@ if no similar [idea](https://github.com/photoprism/photoprism/labels/idea)
 or [todo](https://github.com/photoprism/photoprism/labels/todo) already exists.
 Please don't use the issue tracker to ask general questions.
 
-We also maintain a couple of pages in our [Developer Guide](https://github.com/photoprism/photoprism/wiki)
+We also maintain a couple of pages in our [Wiki](https://github.com/photoprism/photoprism/wiki)
 for collecting interesting ideas and feedback, e.g.
 [Related](https://github.com/photoprism/photoprism/wiki/Related),
 [Love](https://github.com/photoprism/photoprism/wiki/Love),

@@ -2,11 +2,11 @@
     <div class="p-page p-page-photos" v-infinite-scroll="loadMore" :infinite-scroll-disabled="scrollDisabled"
          :infinite-scroll-distance="10" :infinite-scroll-listen-for-event="'scrollRefresh'">
 
-        <p-photo-search :settings="settings" :filter="filter" :filter-change="updateQuery"
+        <p-photo-search :settings="settings" :filter="filter" :filter-change="updateQuery" :dirty="dirty"
                         :refresh="refresh"></p-photo-search>
 
         <v-container fluid class="pa-4" v-if="loading">
-            <v-progress-linear color="secondary-dark"  :indeterminate="true"></v-progress-linear>
+            <v-progress-linear color="secondary-dark" :indeterminate="true"></v-progress-linear>
         </v-container>
         <v-container fluid class="pa-0" v-else>
             <p-scroll-top></p-scroll-top>
@@ -16,23 +16,28 @@
             <p-photo-mosaic v-if="settings.view === 'mosaic'"
                             :photos="results"
                             :selection="selection"
+                            :edit-photo="editPhoto"
                             :open-photo="openPhoto"></p-photo-mosaic>
             <p-photo-list v-else-if="settings.view === 'list'"
                           :photos="results"
                           :selection="selection"
                           :open-photo="openPhoto"
+                          :edit-photo="editPhoto"
                           :open-location="openLocation"></p-photo-list>
-            <p-photo-details v-else
-                             :photos="results"
-                             :selection="selection"
-                             :open-photo="openPhoto"
-                             :open-location="openLocation"></p-photo-details>
+            <p-photo-cards v-else
+                           :photos="results"
+                           :selection="selection"
+                           :open-photo="openPhoto"
+                           :edit-photo="editPhoto"
+                           :open-location="openLocation"></p-photo-cards>
         </v-container>
     </div>
 </template>
 
 <script>
     import Photo from "model/photo";
+    import Thumb from "model/thumb";
+    import Event from "pubsub-js";
 
     export default {
         name: 'p-page-photos',
@@ -50,6 +55,7 @@
                 this.filter.year = query['year'] ? parseInt(query['year']) : 0;
                 this.filter.color = query['color'] ? query['color'] : '';
                 this.filter.label = query['label'] ? query['label'] : '';
+                this.filter.order = this.sortOrder();
                 this.settings.view = this.viewType();
                 this.lastFilter = {};
                 this.routeName = this.$route.name;
@@ -59,7 +65,7 @@
         data() {
             const query = this.$route.query;
             const routeName = this.$route.name;
-            const order = query['order'] ? query['order'] : 'newest';
+            const order = this.sortOrder();
             const camera = query['camera'] ? parseInt(query['camera']) : 0;
             const q = query['q'] ? query['q'] : '';
             const country = query['country'] ? query['country'] : '';
@@ -77,46 +83,57 @@
                 color: color,
                 order: order,
                 q: q,
-                /* before: before,
-                after: after, */
             };
-            const settings = {view: view};
+
+            const settings = this.$config.settings();
+
+            if (settings.features.private) {
+                filter.public = true;
+            }
+
+            if (settings.features.review) {
+                filter.quality = 3;
+            }
 
             return {
+                subscriptions: [],
+                listen: false,
+                dirty: false,
                 results: [],
                 scrollDisabled: true,
                 pageSize: 60,
                 offset: 0,
+                page: 0,
                 selection: this.$clipboard.selection,
-                settings: settings,
+                settings: {view: view},
                 filter: filter,
                 lastFilter: {},
                 routeName: routeName,
-                loading: true
+                loading: true,
             };
         },
         computed: {
             context: function () {
-                if(!this.staticFilter) {
-                    return "photos"
+                if (!this.staticFilter) {
+                    return "photos";
                 }
 
-                if(this.staticFilter.hidden) {
-                    return "hidden"
-                } else if (this.staticFilter.favorites) {
-                    return "favorites"
+                if (this.staticFilter.archived) {
+                    return "archive";
+                } else if (this.staticFilter.favorite) {
+                    return "favorites";
                 }
 
-                return ""
+                return "";
             }
         },
         methods: {
             viewType() {
                 let queryParam = this.$route.query['view'];
-                let storedType = window.localStorage.getItem("photo_view_type");
+                let storedType = window.localStorage.getItem("photo_view");
 
                 if (queryParam) {
-                    window.localStorage.setItem("photo_view_type", queryParam);
+                    window.localStorage.setItem("photo_view", queryParam);
                     return queryParam;
                 } else if (storedType) {
                     return storedType;
@@ -124,42 +141,97 @@
                     return 'mosaic';
                 }
 
-                return 'details';
+                return 'cards';
+            },
+            sortOrder() {
+                let queryParam = this.$route.query['order'];
+                let storedType = window.localStorage.getItem("photo_order");
+
+                if (queryParam) {
+                    window.localStorage.setItem("photo_order", queryParam);
+                    return queryParam;
+                } else if (storedType) {
+                    return storedType;
+                }
+
+                return 'newest';
             },
             openLocation(index) {
                 const photo = this.results[index];
 
-                if (photo.PhotoLat && photo.PhotoLng) {
-                    this.$router.push({name: "places", query: {lat: String(photo.PhotoLat), lng: String(photo.PhotoLng)}});
-                } else if (photo.LocCity) {
-                    this.$router.push({name: "places", query: {q: photo.LocCity}});
+                if (photo.LocationID) {
+                    this.$router.push({name: "place", params: {q: "s2:" + photo.LocationID}});
+                } else if (photo.PlaceID.length > 3) {
+                    this.$router.push({name: "place", params: {q: "s2:" + photo.PlaceID}});
                 }
             },
-            openPhoto(index) {
-                this.$viewer.show(this.results, index)
+            editPhoto(index) {
+                let selection = this.results.map((p) => {
+                    return p.getId()
+                });
+
+                // Open Edit Dialog
+                Event.publish("dialog.edit", {selection: selection, album: null, index: index});
+            },
+            openPhoto(index, showMerged) {
+                if(!this.results[index]) {
+                    return false;
+                }
+
+                if (showMerged && this.results[index].PhotoVideo) {
+                    if(this.results[index].isPlayable()) {
+                        Event.publish("dialog.video", {play: this.results[index], album: null});
+                    } else {
+                        this.$viewer.show(Thumb.fromPhotos(this.results), index);
+                    }
+                } else if (showMerged) {
+                    this.$viewer.show(Thumb.fromFiles([this.results[index]]), 0)
+                } else {
+                    this.$viewer.show(Thumb.fromPhotos(this.results), index);
+                }
             },
             loadMore() {
                 if (this.scrollDisabled) return;
 
                 this.scrollDisabled = true;
+                this.listen = false;
 
-                this.offset += this.pageSize;
+                const count = this.dirty ? (this.page + 2) * this.pageSize : this.pageSize;
+                const offset = this.dirty ? 0 : this.offset;
 
                 const params = {
-                    count: this.pageSize,
-                    offset: this.offset,
+                    count: count,
+                    offset: offset,
+                    merged: true,
                 };
 
                 Object.assign(params, this.lastFilter);
 
-                Photo.search(params).then(response => {
-                    this.results = this.results.concat(response.models);
+                if (this.staticFilter) {
+                    Object.assign(params, this.staticFilter);
+                }
 
-                    this.scrollDisabled = (response.models.length < this.pageSize);
+                Photo.search(params).then(response => {
+                    this.results = Photo.mergeResponse(this.results, response);
+
+                    this.scrollDisabled = (response.count < count);
 
                     if (this.scrollDisabled) {
-                        this.$notify.info(this.$gettext('All ') + this.results.length + this.$gettext(' photos loaded'));
+                        this.offset = offset;
+
+                        if (this.results.length > 1) {
+                            this.$notify.info(this.$gettext('All ') + this.results.length + this.$gettext(' photos loaded'));
+                        }
+                    } else {
+                        this.offset = offset + count;
+                        this.page++;
                     }
+                }).catch(() => {
+                    this.scrollDisabled = false;
+                }).finally(() => {
+                    this.dirty = false;
+                    this.loading = false;
+                    this.listen = true;
                 });
             },
             updateQuery() {
@@ -185,6 +257,7 @@
                 const params = {
                     count: this.pageSize,
                     offset: this.offset,
+                    merged: true,
                 };
 
                 Object.assign(params, this.filter);
@@ -196,12 +269,12 @@
                 return params;
             },
             refresh() {
-                this.lastFilter = {};
-                const pageSize = this.pageSize;
-                this.pageSize = this.offset + pageSize;
-                this.search();
-                this.offset = this.pageSize;
-                this.pageSize = pageSize;
+                if (this.loading) return;
+                this.loading = true;
+                this.page = 0;
+                this.dirty = true;
+                this.scrollDisabled = false;
+                this.loadMore();
             },
             search() {
                 this.scrollDisabled = true;
@@ -215,15 +288,18 @@
                 Object.assign(this.lastFilter, this.filter);
 
                 this.offset = 0;
+                this.page = 0;
                 this.loading = true;
+                this.listen = false;
 
                 const params = this.searchParams();
 
                 Photo.search(params).then(response => {
-                    this.loading = false;
+                    this.offset = this.pageSize;
+
                     this.results = response.models;
 
-                    this.scrollDisabled = (response.models.length < this.pageSize);
+                    this.scrollDisabled = (response.count < this.pageSize);
 
                     if (this.scrollDisabled) {
                         if (!this.results.length) {
@@ -238,13 +314,92 @@
 
                         this.$nextTick(() => this.$emit("scrollRefresh"));
                     }
-                }).catch(() => this.loading = false);
+                }).finally(() => {
+                    this.dirty = false;
+                    this.loading = false;
+                    this.listen = true;
+                });
+            },
+            onImportCompleted() {
+                if (!this.listen) return;
+
+                this.loadMore();
+            },
+            onUpdate(ev, data) {
+                if (!this.listen) return;
+
+                if (!data || !data.entities) {
+                    return
+                }
+
+                const type = ev.split('.')[1];
+
+                switch (type) {
+                    case 'updated':
+                        for (let i = 0; i < data.entities.length; i++) {
+                            const values = data.entities[i];
+                            const model = this.results.find((m) => m.PhotoUUID === values.PhotoUUID);
+
+                            if (model) {
+                                for (let key in values) {
+                                    if (values.hasOwnProperty(key) && values[key] != null && typeof values[key] !== "object") {
+                                        model[key] = values[key];
+                                    }
+                                }
+                            }
+                        }
+                        break;
+                    case 'restored':
+                        this.dirty = true;
+
+                        if (this.context !== "archive") break;
+
+                        for (let i = 0; i < data.entities.length; i++) {
+                            const uuid = data.entities[i];
+                            const index = this.results.findIndex((m) => m.PhotoUUID === uuid);
+                            if (index >= 0) {
+                                this.results.splice(index, 1);
+                            }
+                        }
+
+                        break;
+                    case 'archived':
+                        this.dirty = true;
+
+                        if (this.context === "archive") break;
+
+                        for (let i = 0; i < data.entities.length; i++) {
+                            const uuid = data.entities[i];
+                            const index = this.results.findIndex((m) => m.PhotoUUID === uuid);
+                            if (index >= 0) {
+                                this.results.splice(index, 1);
+                            }
+                        }
+
+                        break;
+                    case 'created':
+                        this.dirty = true;
+                        this.scrollDisabled = false;
+
+                        break;
+                    default:
+                        console.warn("unexpected event type", ev);
+                }
             },
         },
         created() {
             this.search();
+
+            this.subscriptions.push(Event.subscribe("import.completed", (ev, data) => this.onImportCompleted(ev, data)));
+            this.subscriptions.push(Event.subscribe("photos", (ev, data) => this.onUpdate(ev, data)));
+
+            this.subscriptions.push(Event.subscribe("touchmove.top", () => this.refresh()));
+            this.subscriptions.push(Event.subscribe("touchmove.bottom", () => this.loadMore()));
         },
         destroyed() {
-        }
+            for (let i = 0; i < this.subscriptions.length; i++) {
+                Event.unsubscribe(this.subscriptions[i]);
+            }
+        },
     };
 </script>

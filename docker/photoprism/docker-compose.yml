@@ -9,33 +9,68 @@ version: '3.3'
 services:
   photoprism:
     image: photoprism/photoprism:latest
+    restart: unless-stopped
     ports:
       - 2342:2342 # [local port]:[container port]
+      # - 2343:2343 # Database (built-in TiDB)
+    healthcheck: # Optional
+      test: "photoprism status"
+      interval: 60s
+      timeout: 15s
+      retries: 5
     environment: # Run "photoprism help" and "photoprism config" too see all config options and current values
-      PHOTOPRISM_URL: "https://demo.photoprism.org/"
+      PHOTOPRISM_URL: "http://localhost:2342/"
       PHOTOPRISM_TITLE: "PhotoPrism"
       PHOTOPRISM_SUBTITLE: "Browse your life"
       PHOTOPRISM_DESCRIPTION: "Personal Photo Management powered by Go and Google TensorFlow. Free and open-source."
       PHOTOPRISM_AUTHOR: "Anonymous"
-      PHOTOPRISM_TWITTER: "@browseyourlife"
-      PHOTOPRISM_IMPORT_PATH: "/home/photoprism/Pictures/Import"
-      PHOTOPRISM_EXPORT_PATH: "/home/photoprism/Pictures/Export"
-      PHOTOPRISM_ORIGINALS_PATH: "/home/photoprism/Pictures/Originals"
       PHOTOPRISM_UPLOAD_NSFW: "true"
-      PHOTOPRISM_HIDE_NSFW: "false"
+      PHOTOPRISM_DETECT_NSFW: "false"
       PHOTOPRISM_EXPERIMENTAL: "false"
       PHOTOPRISM_DEBUG: "false"
       PHOTOPRISM_READONLY: "false"
       PHOTOPRISM_PUBLIC: "false"
-      PHOTOPRISM_ADMIN_PASSWORD: "photoprism"
+      PHOTOPRISM_DISABLE_SETTINGS: "false"
+      PHOTOPRISM_HTTP_HOST: "0.0.0.0"
+      PHOTOPRISM_HTTP_PORT: 2342
+      PHOTOPRISM_TIDB_HOST: "0.0.0.0"
+      PHOTOPRISM_TIDB_PORT: 2343 # Port for built-in TiDB SQL server (driver "tidb")
+      PHOTOPRISM_TIDB_PASSWORD: "photoprism" # Plain text only (username "root")
+      PHOTOPRISM_ADMIN_PASSWORD: "photoprism" # Plain text or bcrypt hash (escape "$" with "$$")
+      PHOTOPRISM_WEBDAV_PASSWORD: "photoprism" # Plain text only (username "photoprism")
+      PHOTOPRISM_DATABASE_DRIVER: "tidb" # Change to "mysql" for external MySQL or MariaDB
+      PHOTOPRISM_DATABASE_DSN: "root:photoprism@tcp(localhost:2343)/photoprism?parseTime=true"
+      # PHOTOPRISM_DATABASE_DRIVER: "mysql" # Using MariaDB or MySQL instead of the internal TiDB is optional
+      # PHOTOPRISM_DATABASE_DSN: "photoprism:photoprism@tcp(photoprism-db:3306)/photoprism?parseTime=true"
+      PHOTOPRISM_JPEG_QUALITY: 90 # Use 95 for high-quality thumbnails (requires more storage)
+      PHOTOPRISM_THUMB_FILTER: "lanczos" # Resample filter, best to worst: blackman, lanczos, cubic, linear
+      PHOTOPRISM_THUMB_UNCACHED: "false" # On-demand rendering of default thumbnails (high memory and cpu usage)
+      PHOTOPRISM_THUMB_SIZE: 2048 # Default thumbnail size limit (default 2048, min 720, max 3840)
+      # PHOTOPRISM_THUMB_SIZE: 3840 # For retina screens (requires more storage)
+      PHOTOPRISM_THUMB_LIMIT: 3840 # On-demand thumbnail size limit (default 2048, min 720, max 3840)
+      # PHOTOPRISM_SIDECAR_JSON: "true" # sync metadata with json sidecar files as used by exiftool
     volumes:
-      - "~/Pictures/Originals:/home/photoprism/Pictures/Originals" # [local path]:[container path]
-      - "~/Pictures/Import:/home/photoprism/Pictures/Import" # [local path]:[container path] (optional)
-      - "~/Pictures/Export:/home/photoprism/Pictures/Export" # [local path]:[container path] (optional)
-      - "photoprism-cache:/home/photoprism/.cache/photoprism" # keep thumbnail cache
-      - "photoprism-database:/home/photoprism/.local/share/photoprism/resources/database" # keep database files
+      - "~/Pictures/Originals:/photoprism/originals" # [local path]:[container path]
+      - "~/Pictures/Import:/photoprism/import" # [local path]:[container path] (optional)
+      - "photoprism-config:/photoprism/config" # keep settings
+      - "photoprism-cache:/photoprism/cache" # keep thumbnail cache
+      - "photoprism-database:/photoprism/database" # TiDB database files, remove if you use MariaDB or MySQL
+
+  # photoprism-db: # Uncomment, if you want to use MariaDB instead of the internal TiDB
+  #  image: mariadb:10.5 # Alternatively mysql:8.0
+  #  restart: unless-stopped
+  #  command: mysqld --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --max-connections=1024 --innodb-rollback-on-timeout=ON --innodb-lock-wait-timeout=120
+  #  volumes:
+  #    - "photoprism-database:/var/lib/mysql"
+  #  environment:
+  #    MYSQL_ROOT_PASSWORD: photoprism
+  #    MYSQL_USER: photoprism
+  #    MYSQL_PASSWORD: photoprism
+  #    MYSQL_DATABASE: photoprism
 
 volumes: # keep this
+  photoprism-config:
+    driver: local
   photoprism-cache:
     driver: local
   photoprism-database:

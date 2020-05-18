@@ -3,6 +3,7 @@ package photoprism
 import (
 	"testing"
 
+	"github.com/photoprism/photoprism/internal/classify"
 	"github.com/photoprism/photoprism/internal/config"
 	"github.com/photoprism/photoprism/internal/nsfw"
 	"github.com/stretchr/testify/assert"
@@ -11,13 +12,11 @@ import (
 func TestNewImport(t *testing.T) {
 	conf := config.TestConfig()
 
-	tf := NewTensorFlow(conf)
-	nd := nsfw.NewDetector(conf.NSFWModelPath())
-
-	ind := NewIndex(conf, tf, nd)
-
+	tf := classify.New(conf.ResourcesPath(), conf.DisableTensorFlow())
+	nd := nsfw.New(conf.NSFWModelPath())
 	convert := NewConvert(conf)
 
+	ind := NewIndex(conf, tf, nd, convert)
 	imp := NewImport(conf, ind, convert)
 
 	assert.IsType(t, &Import{}, imp)
@@ -28,12 +27,11 @@ func TestImport_DestinationFilename(t *testing.T) {
 
 	conf.InitializeTestData(t)
 
-	tf := NewTensorFlow(conf)
-	nd := nsfw.NewDetector(conf.NSFWModelPath())
-
-	ind := NewIndex(conf, tf, nd)
-
+	tf := classify.New(conf.ResourcesPath(), conf.DisableTensorFlow())
+	nd := nsfw.New(conf.NSFWModelPath())
 	convert := NewConvert(conf)
+
+	ind := NewIndex(conf, tf, nd, convert)
 
 	imp := NewImport(conf, ind, convert)
 
@@ -41,11 +39,13 @@ func TestImport_DestinationFilename(t *testing.T) {
 
 	assert.Nil(t, err)
 
-	filename, _ := imp.DestinationFilename(rawFile, rawFile)
+	fileName, err := imp.DestinationFilename(rawFile, rawFile)
 
-	// TODO: Check for errors!
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	assert.Equal(t, conf.OriginalsPath()+"/2019/07/20190705_153230_6E16EB388AD2.cr2", filename)
+	assert.Equal(t, conf.OriginalsPath()+"/2019/07/20190705_153230_C167C6FD.cr2", fileName)
 }
 
 func TestImport_Start(t *testing.T) {
@@ -57,14 +57,15 @@ func TestImport_Start(t *testing.T) {
 
 	conf.InitializeTestData(t)
 
-	tf := NewTensorFlow(conf)
-	nd := nsfw.NewDetector(conf.NSFWModelPath())
-
-	ind := NewIndex(conf, tf, nd)
-
+	tf := classify.New(conf.ResourcesPath(), conf.DisableTensorFlow())
+	nd := nsfw.New(conf.NSFWModelPath())
 	convert := NewConvert(conf)
+
+	ind := NewIndex(conf, tf, nd, convert)
 
 	imp := NewImport(conf, ind, convert)
 
-	imp.Start(conf.ImportPath())
+	opt := ImportOptionsMove(conf.ImportPath())
+
+	imp.Start(opt)
 }

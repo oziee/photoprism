@@ -24,12 +24,12 @@ func TestMediaFile_Location(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if err = location.Find(conf.Db(), "places"); err != nil {
+		if err = location.Find("places"); err != nil {
 			t.Fatal(err)
 		}
 
-		assert.Equal(t, "Himeji", location.City())
-		assert.Equal(t, "Kinki Region", location.State())
+		assert.Equal(t, "Takasago", location.City())
+		assert.Equal(t, "Hyogo Prefecture", location.State())
 		assert.Equal(t, "Japan", location.CountryName())
 		assert.Equal(t, "", location.Category())
 		assert.True(t, strings.HasPrefix(location.ID, "3554df45"))
@@ -39,12 +39,12 @@ func TestMediaFile_Location(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if err = location.Find(conf.Db(), "places"); err != nil {
+		if err = location.Find("places"); err != nil {
 			t.Fatal(err)
 		}
 
-		assert.Equal(t, "Himeji", location2.City())
-		assert.Equal(t, "Kinki Region", location2.State())
+		assert.Equal(t, "Takasago", location2.City())
+		assert.Equal(t, "Hyogo Prefecture", location2.State())
 	})
 	t.Run("cat_brown.jpg", func(t *testing.T) {
 		conf := config.TestConfig()
@@ -60,7 +60,7 @@ func TestMediaFile_Location(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if err = location.Find(conf.Db(), "places"); err != nil {
+		if err = location.Find("places"); err != nil {
 			t.Fatal(err)
 		}
 
@@ -81,7 +81,22 @@ func TestMediaFile_Location(t *testing.T) {
 		if _, err := mediaFile.Location(); err == nil {
 			t.Fatal("mediaFile.Location() should return error")
 		} else {
-			assert.Equal(t, "file: no latitude and longitude in metadata", err.Error())
+			assert.Equal(t, "mediafile: no latitude and longitude in metadata", err.Error())
 		}
+	})
+	t.Run("Random.docx", func(t *testing.T) {
+		conf := config.TestConfig()
+
+		mediaFile, err := NewMediaFile(conf.ExamplesPath() + "/Random.docx")
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		location, err := mediaFile.Location()
+
+		assert.Error(t, err, "meta: no exif data")
+		assert.Nil(t, location)
+
 	})
 }

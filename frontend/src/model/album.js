@@ -1,8 +1,26 @@
-import Abstract from "model/abstract";
+import RestModel from "model/rest";
 import Api from "common/api";
-import { DateTime } from "luxon";
+import {DateTime} from "luxon";
 
-class Album extends Abstract {
+class Album extends RestModel {
+    getDefaults() {
+        return {
+            ID: 0,
+            CoverUUID: "",
+            AlbumUUID: "",
+            AlbumSlug: "",
+            AlbumName: "",
+            AlbumDescription: "",
+            AlbumNotes: "",
+            AlbumOrder: "",
+            AlbumTemplate: "",
+            AlbumFavorite: true,
+            Links: [],
+            CreatedAt: "",
+            UpdatedAt: "",
+        };
+    }
+
     getEntityName() {
         return this.AlbumSlug;
     }
@@ -22,7 +40,7 @@ class Album extends Abstract {
     getThumbnailSrcset() {
         const result = [];
 
-        result.push(this.getThumbnailUrl("fit_720")  + " 720w");
+        result.push(this.getThumbnailUrl("fit_720") + " 720w");
         result.push(this.getThumbnailUrl("fit_1280") + " 1280w");
         result.push(this.getThumbnailUrl("fit_1920") + " 1920w");
         result.push(this.getThumbnailUrl("fit_2560") + " 2560w");
@@ -50,7 +68,7 @@ class Album extends Abstract {
     toggleLike() {
         this.AlbumFavorite = !this.AlbumFavorite;
 
-        if(this.AlbumFavorite) {
+        if (this.AlbumFavorite) {
             return Api.post(this.getEntityResource() + "/like");
         } else {
             return Api.delete(this.getEntityResource() + "/like");

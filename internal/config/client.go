@@ -4,16 +4,112 @@ import (
 	"strings"
 	"time"
 
-	"github.com/photoprism/photoprism/internal/colors"
 	"github.com/photoprism/photoprism/internal/entity"
-	"github.com/photoprism/photoprism/internal/file"
+	"github.com/photoprism/photoprism/pkg/capture"
+	"github.com/photoprism/photoprism/pkg/colors"
+	"github.com/photoprism/photoprism/pkg/fs"
+	"github.com/photoprism/photoprism/pkg/txt"
 )
 
-// HTTP client / Web UI config values
+// ClientConfig contains HTTP client / Web UI config values
 type ClientConfig map[string]interface{}
+
+// Flags returns config flags as string slice.
+func (c *Config) Flags() (flags []string) {
+	if c.Public() {
+		flags = append(flags, "public")
+	}
+
+	if c.Debug() {
+		flags = append(flags, "debug")
+	}
+
+	if c.Experimental() {
+		flags = append(flags, "experimental")
+	}
+
+	if c.ReadOnly() {
+		flags = append(flags, "readonly")
+	}
+
+	if !c.DisableSettings() {
+		flags = append(flags, "settings")
+	}
+
+	return flags
+}
+
+// PublicClientConfig returns reduced config values for non-public sites.
+func (c *Config) PublicClientConfig() ClientConfig {
+	if c.Public() {
+		return c.ClientConfig()
+	}
+
+	jsHash := fs.Checksum(c.HttpStaticBuildPath() + "/app.js")
+	cssHash := fs.Checksum(c.HttpStaticBuildPath() + "/app.css")
+	configFlags := c.Flags()
+
+	var noPos = struct {
+		PhotoUUID  string    `json:"photo"`
+		LocationID string    `json:"location"`
+		TakenAt    time.Time `json:"utc"`
+		PhotoLat   float64   `json:"lat"`
+		PhotoLng   float64   `json:"lng"`
+	}{}
+
+	var count = struct {
+		Photos    uint `json:"photos"`
+		Videos    uint `json:"videos"`
+		Hidden    uint `json:"hidden"`
+		Favorites uint `json:"favorites"`
+		Private   uint `json:"private"`
+		Stories   uint `json:"stories"`
+		Labels    uint `json:"labels"`
+		Albums    uint `json:"albums"`
+		Countries uint `json:"countries"`
+		Places    uint `json:"places"`
+	}{}
+
+	result := ClientConfig{
+		"settings":        c.Settings(),
+		"flags":           strings.Join(configFlags, " "),
+		"name":            c.Name(),
+		"url":             c.Url(),
+		"title":           c.Title(),
+		"subtitle":        c.Subtitle(),
+		"description":     c.Description(),
+		"author":          c.Author(),
+		"version":         c.Version(),
+		"copyright":       c.Copyright(),
+		"debug":           c.Debug(),
+		"readonly":        c.ReadOnly(),
+		"uploadNSFW":      c.UploadNSFW(),
+		"public":          c.Public(),
+		"experimental":    c.Experimental(),
+		"disableSettings": c.DisableSettings(),
+		"albums":          []string{},
+		"cameras":         []string{},
+		"lenses":          []string{},
+		"countries":       []string{},
+		"thumbnails":      Thumbnails,
+		"jsHash":          jsHash,
+		"cssHash":         cssHash,
+		"count":           count,
+		"pos":             noPos,
+		"years":           []int{},
+		"colors":          colors.All.List(),
+		"categories":      []string{},
+		"clip":            txt.ClipDefault,
+		"server":          RuntimeInfo{},
+	}
+
+	return result
+}
 
 // ClientConfig returns a loaded and set configuration entity.
 func (c *Config) ClientConfig() ClientConfig {
+	defer log.Debug(capture.Time(time.Now(), "config: client config created"))
+
 	db := c.Db()
 
 	var cameras []*entity.Camera
@@ -36,24 +132,28 @@ func (c *Config) ClientConfig() ClientConfig {
 		Take(&position)
 
 	var count = struct {
-		Photos    uint `json:"photos"`
-		Favorites uint `json:"favorites"`
-		Private   uint `json:"private"`
-		Stories   uint `json:"stories"`
-		Labels    uint `json:"labels"`
-		Albums    uint `json:"albums"`
-		Countries uint `json:"countries"`
-		Places    uint `json:"places"`
+		Photos         uint `json:"photos"`
+		Videos         uint `json:"videos"`
+		Hidden         uint `json:"hidden"`
+		Favorites      uint `json:"favorites"`
+		Private        uint `json:"private"`
+		Albums         uint `json:"albums"`
+		Countries      uint `json:"countries"`
+		Places         uint `json:"places"`
+		Labels         uint `json:"labels"`
+		LabelMaxPhotos uint `json:"labelMaxPhotos"`
 	}{}
 
 	db.Table("photos").
-		Select("COUNT(*) AS photos, SUM(photo_favorite) AS favorites, SUM(photo_private) AS private, SUM(photo_story) AS stories").
+		Select("SUM(photo_video = 1 AND photo_quality >= 0) AS videos, SUM(photo_quality = -1) AS hidden, SUM(photo_quality >= 0) AS photos, SUM(photo_favorite) AS favorites, SUM(photo_private) AS private").
 		Where("deleted_at IS NULL").
 		Take(&count)
 
 	db.Table("labels").
-		Select("COUNT(*) AS labels").
-		Where("(label_priority >= 0 || label_favorite = 1) && deleted_at IS NULL").
+		Select("MAX(photo_count) as label_max_photos, COUNT(*) AS labels").
+		Where("photo_count > 0").
+		Where("deleted_at IS NULL").
+		Where("(label_priority >= 0 || label_favorite = 1)").
 		Take(&count)
 
 	db.Table("albums").
@@ -66,7 +166,8 @@ func (c *Config) ClientConfig() ClientConfig {
 		Take(&count)
 
 	db.Table("places").
-		Select("(COUNT(*) - 1) AS places").
+		Select("SUM(photo_count > 0) AS places").
+		Where("id != 'zz'").
 		Take(&count)
 
 	type country struct {
@@ -78,15 +179,15 @@ func (c *Config) ClientConfig() ClientConfig {
 
 	db.Model(&entity.Country{}).
 		Select("id, country_name").
-		Order("country_name").
+		Order("country_slug").
 		Scan(&countries)
 
 	db.Where("deleted_at IS NULL").
-		Limit(1000).Order("camera_model").
+		Limit(10000).Order("camera_slug").
 		Find(&cameras)
 
 	db.Where("deleted_at IS NULL").
-		Limit(1000).Order("lens_model").
+		Limit(10000).Order("lens_slug").
 		Find(&lenses)
 
 	db.Where("deleted_at IS NULL AND album_favorite = 1").
@@ -96,6 +197,7 @@ func (c *Config) ClientConfig() ClientConfig {
 	var years []int
 
 	db.Table("photos").
+		Where("photo_year > 0").
 		Order("photo_year DESC").
 		Pluck("DISTINCT photo_year", &years)
 
@@ -118,54 +220,41 @@ func (c *Config) ClientConfig() ClientConfig {
 		categories[i].Title = strings.Title(l.LabelName)
 	}
 
-	jsHash := file.Hash(c.HttpStaticBuildPath() + "/app.js")
-	cssHash := file.Hash(c.HttpStaticBuildPath() + "/app.css")
-
-	// Feature Flags
-	var flags []string
-
-	if c.Public() {
-		flags = append(flags, "public")
-	}
-	if c.Debug() {
-		flags = append(flags, "debug")
-	}
-	if c.Experimental() {
-		flags = append(flags, "experimental")
-	}
-	if c.ReadOnly() {
-		flags = append(flags, "readonly")
-	}
+	jsHash := fs.Checksum(c.HttpStaticBuildPath() + "/app.js")
+	cssHash := fs.Checksum(c.HttpStaticBuildPath() + "/app.css")
+	configFlags := c.Flags()
 
 	result := ClientConfig{
-		"flags":        strings.Join(flags, " "),
-		"name":         c.Name(),
-		"url":          c.Url(),
-		"title":        c.Title(),
-		"subtitle":     c.Subtitle(),
-		"description":  c.Description(),
-		"author":       c.Author(),
-		"twitter":      c.Twitter(),
-		"version":      c.Version(),
-		"copyright":    c.Copyright(),
-		"debug":        c.Debug(),
-		"readonly":     c.ReadOnly(),
-		"uploadNSFW":   c.UploadNSFW(),
-		"public":       c.Public(),
-		"experimental": c.Experimental(),
-		"albums":       albums,
-		"cameras":      cameras,
-		"lenses":       lenses,
-		"countries":    countries,
-		"thumbnails":   Thumbnails,
-		"jsHash":       jsHash,
-		"cssHash":      cssHash,
-		"settings":     c.Settings(),
-		"count":        count,
-		"pos":          position,
-		"years":        years,
-		"colors":       colors.All.List(),
-		"categories":   categories,
+		"flags":           strings.Join(configFlags, " "),
+		"name":            c.Name(),
+		"url":             c.Url(),
+		"title":           c.Title(),
+		"subtitle":        c.Subtitle(),
+		"description":     c.Description(),
+		"author":          c.Author(),
+		"version":         c.Version(),
+		"copyright":       c.Copyright(),
+		"debug":           c.Debug(),
+		"readonly":        c.ReadOnly(),
+		"uploadNSFW":      c.UploadNSFW(),
+		"public":          c.Public(),
+		"experimental":    c.Experimental(),
+		"disableSettings": c.DisableSettings(),
+		"albums":          albums,
+		"cameras":         cameras,
+		"lenses":          lenses,
+		"countries":       countries,
+		"thumbnails":      Thumbnails,
+		"jsHash":          jsHash,
+		"cssHash":         cssHash,
+		"settings":        c.Settings(),
+		"count":           count,
+		"pos":             position,
+		"years":           years,
+		"colors":          colors.All.List(),
+		"categories":      categories,
+		"clip":            txt.ClipDefault,
+		"server":          NewRuntimeInfo(),
 	}
 
 	return result

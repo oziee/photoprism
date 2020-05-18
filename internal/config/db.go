@@ -11,31 +11,32 @@ import (
 	_ "github.com/jinzhu/gorm/dialects/mysql"
 	_ "github.com/jinzhu/gorm/dialects/sqlite"
 	"github.com/photoprism/photoprism/internal/entity"
+	"github.com/photoprism/photoprism/internal/mutex"
 	"github.com/photoprism/photoprism/internal/tidb"
 )
 
 // DatabaseDriver returns the database driver name.
 func (c *Config) DatabaseDriver() string {
-	if c.config.DatabaseDriver == "" {
-		return DbTiDB
+	if strings.ToLower(c.params.DatabaseDriver) == "mysql" {
+		return DriverMysql
 	}
 
-	return c.config.DatabaseDriver
+	return DriverTidb
 }
 
 // DatabaseDsn returns the database data source name (DSN).
 func (c *Config) DatabaseDsn() string {
-	if c.config.DatabaseDsn == "" {
-		return "root:photoprism@tcp(localhost:4000)/photoprism?parseTime=true"
+	if c.params.DatabaseDsn == "" {
+		return "root:photoprism@tcp(localhost:2343)/photoprism?parseTime=true"
 	}
 
-	return c.config.DatabaseDsn
+	return c.params.DatabaseDsn
 }
 
 // Db returns the db connection.
 func (c *Config) Db() *gorm.DB {
 	if c.db == nil {
-		log.Fatal("config: database not initialised")
+		log.Fatal("config: database not connected")
 	}
 
 	return c.db
@@ -54,38 +55,25 @@ func (c *Config) CloseDb() error {
 	return nil
 }
 
-// MigrateDb will start a migration process.
-func (c *Config) MigrateDb() {
-	db := c.Db()
+// InitDb will initialize the database connection and schema.
+func (c *Config) InitDb() {
+	entity.SetDbProvider(c)
+	entity.MigrateDb()
+}
 
-	db.AutoMigrate(
-		&entity.File{},
-		&entity.Photo{},
-		&entity.Event{},
-		&entity.Place{},
-		&entity.Location{},
-		&entity.Camera{},
-		&entity.Lens{},
-		&entity.Country{},
-		&entity.Share{},
-
-		&entity.Album{},
-		&entity.PhotoAlbum{},
-		&entity.Label{},
-		&entity.Category{},
-		&entity.PhotoLabel{},
-		&entity.Keyword{},
-		&entity.PhotoKeyword{},
-	)
-
-	entity.CreateUnknownPlace(db)
-	entity.CreateUnknownCountry(db)
+// InitTestDb drops all tables in the currently configured database and re-creates them.
+func (c *Config) InitTestDb() {
+	entity.SetDbProvider(c)
+	entity.ResetTestFixtures()
 }
 
 // connectToDatabase establishes a database connection.
 // When used with the internal driver, it may create a new database server instance.
 // It tries to do this 12 times with a 5 second sleep interval in between.
 func (c *Config) connectToDatabase(ctx context.Context) error {
+	mutex.Db.Lock()
+	defer mutex.Db.Unlock()
+
 	dbDriver := c.DatabaseDriver()
 	dbDsn := c.DatabaseDsn()
 
@@ -100,22 +88,22 @@ func (c *Config) connectToDatabase(ctx context.Context) error {
 	isTiDB := false
 	initSuccess := false
 
-	if dbDriver == DbTiDB {
+	if dbDriver == DriverTidb {
 		isTiDB = true
-		dbDriver = DbMySQL
+		dbDriver = DriverMysql
 	}
 
 	db, err := gorm.Open(dbDriver, dbDsn)
 	if err != nil || db == nil {
 		if isTiDB {
-			log.Infof("starting database server at %s:%d\n", c.SqlServerHost(), c.SqlServerPort())
+			log.Infof("starting database server at %s:%d\n", c.TidbServerHost(), c.TidbServerPort())
 
-			go tidb.Start(ctx, c.SqlServerPath(), c.SqlServerPort(), c.SqlServerHost(), c.Debug())
+			go tidb.Start(ctx, c.TidbServerPath(), c.TidbServerPort(), c.TidbServerHost(), c.Debug())
+
+			time.Sleep(5 * time.Second)
 		}
 
 		for i := 1; i <= 12; i++ {
-			time.Sleep(5 * time.Second)
-
 			db, err = gorm.Open(dbDriver, dbDsn)
 
 			if db != nil && err == nil {
@@ -123,7 +111,7 @@ func (c *Config) connectToDatabase(ctx context.Context) error {
 			}
 
 			if isTiDB && !initSuccess {
-				err = tidb.InitDatabase(c.SqlServerPort(), c.SqlServerPassword())
+				err = tidb.InitDatabase(c.TidbServerPort(), c.TidbServerPassword())
 
 				if err != nil {
 					log.Debug(err)
@@ -131,6 +119,8 @@ func (c *Config) connectToDatabase(ctx context.Context) error {
 					initSuccess = true
 				}
 			}
+
+			time.Sleep(5 * time.Second)
 		}
 
 		if err != nil || db == nil {
@@ -143,31 +133,6 @@ func (c *Config) connectToDatabase(ctx context.Context) error {
 
 	c.db = db
 	return err
-}
-
-// DropTables drops all tables in the currently configured database (be careful!).
-func (c *Config) DropTables() {
-	db := c.Db()
-
-	db.DropTableIfExists(
-		&entity.File{},
-		&entity.Photo{},
-		&entity.Event{},
-		&entity.Place{},
-		&entity.Location{},
-		&entity.Camera{},
-		&entity.Lens{},
-		&entity.Country{},
-		&entity.Share{},
-
-		&entity.Album{},
-		&entity.PhotoAlbum{},
-		&entity.Label{},
-		&entity.Category{},
-		&entity.PhotoLabel{},
-		&entity.Keyword{},
-		&entity.PhotoKeyword{},
-	)
 }
 
 // ImportSQL imports a file to the currently configured database.
@@ -190,10 +155,6 @@ func (c *Config) ImportSQL(filename string) {
 
 		var result struct{}
 
-		err := q.Raw(stmt).Scan(&result).Error
-
-		if err != nil {
-			log.Error(err)
-		}
+		q.Raw(stmt).Scan(&result)
 	}
 }

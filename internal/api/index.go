@@ -10,32 +10,28 @@ import (
 	"github.com/photoprism/photoprism/internal/config"
 	"github.com/photoprism/photoprism/internal/event"
 	"github.com/photoprism/photoprism/internal/form"
-	"github.com/photoprism/photoprism/internal/nsfw"
 	"github.com/photoprism/photoprism/internal/photoprism"
-	"github.com/photoprism/photoprism/internal/ling"
+	"github.com/photoprism/photoprism/internal/service"
+	"github.com/photoprism/photoprism/pkg/fs"
+	"github.com/photoprism/photoprism/pkg/txt"
 )
 
-var ind *photoprism.Index
-var nd *nsfw.Detector
+// GET /api/v1/index
+func GetIndexingOptions(router *gin.RouterGroup, conf *config.Config) {
+	router.GET("/index", func(c *gin.Context) {
+		if Unauthorized(c, conf) {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, ErrUnauthorized)
+			return
+		}
 
-func initIndex(conf *config.Config) {
-	if ind != nil {
-		return
-	}
+		dirs, err := fs.Dirs(conf.OriginalsPath(), true)
 
-	initNsfwDetector(conf)
+		if err != nil {
+			log.Errorf("index: %s", err)
+		}
 
-	tf := photoprism.NewTensorFlow(conf)
-
-	ind = photoprism.NewIndex(conf, tf, nd)
-}
-
-func initNsfwDetector(conf *config.Config) {
-	if nd != nil {
-		return
-	}
-
-	nd = nsfw.NewDetector(conf.NSFWModelPath())
+		c.JSON(http.StatusOK, gin.H{"dirs": dirs})
+	})
 }
 
 // POST /api/v1/index
@@ -51,31 +47,40 @@ func StartIndexing(router *gin.RouterGroup, conf *config.Config) {
 		var f form.IndexOptions
 
 		if err := c.BindJSON(&f); err != nil {
-			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": ling.UcFirst(err.Error())})
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": txt.UcFirst(err.Error())})
 			return
 		}
 
 		path := conf.OriginalsPath()
 
-		event.Info(fmt.Sprintf("indexing photos in \"%s\"", filepath.Base(path)))
+		ind := service.Index()
 
-		if f.ConvertRaw && !conf.ReadOnly() {
-			convert := photoprism.NewConvert(conf)
-			convert.Path(conf.OriginalsPath())
+		indOpt := photoprism.IndexOptions{
+			Rescan:  f.Rescan,
+			Convert: f.Convert && !conf.ReadOnly(),
+			Path:    filepath.Clean(f.Path),
 		}
 
-		if f.CreateThumbs {
-			if err := photoprism.CreateThumbnailsFromOriginals(conf.OriginalsPath(), conf.ThumbnailsPath(), false); err != nil {
-				event.Error(err.Error())
-			}
-		}
-
-		initIndex(conf)
-
-		if f.SkipUnchanged {
-			ind.Start(photoprism.IndexOptionsNone())
+		if len(indOpt.Path) > 1 {
+			event.Info(fmt.Sprintf("indexing files in %s", txt.Quote(indOpt.Path)))
 		} else {
-			ind.Start(photoprism.IndexOptionsAll())
+			event.Info("indexing originals...")
+		}
+
+		indexed := ind.Start(indOpt)
+
+		prg := service.Purge()
+
+		prgOpt := photoprism.PurgeOptions{
+			Path:   filepath.Clean(f.Path),
+			Ignore: indexed,
+		}
+
+		if files, photos, err := prg.Start(prgOpt); err != nil {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": txt.UcFirst(err.Error())})
+			return
+		} else if len(files) > 0 || len(photos) > 0 {
+			event.Info(fmt.Sprintf("removed %d files and %d photos", len(files), len(photos)))
 		}
 
 		elapsed := int(time.Since(start).Seconds())
@@ -96,7 +101,7 @@ func CancelIndexing(router *gin.RouterGroup, conf *config.Config) {
 			return
 		}
 
-		initIndex(conf)
+		ind := service.Index()
 
 		ind.Cancel()
 

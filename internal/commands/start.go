@@ -10,18 +10,22 @@ import (
 	"time"
 
 	"github.com/photoprism/photoprism/internal/config"
-	"github.com/photoprism/photoprism/internal/file"
 	"github.com/photoprism/photoprism/internal/server"
+	"github.com/photoprism/photoprism/internal/service"
+	"github.com/photoprism/photoprism/internal/workers"
+	"github.com/photoprism/photoprism/pkg/fs"
+	"github.com/photoprism/photoprism/pkg/txt"
 	"github.com/sevlyar/go-daemon"
 	"github.com/urfave/cli"
 )
 
-// Starts web server (user interface)
+// StartCommand is used to register the start cli command
 var StartCommand = cli.Command{
-	Name:   "start",
-	Usage:  "Starts web server",
-	Flags:  startFlags,
-	Action: startAction,
+	Name:    "start",
+	Aliases: []string{"up"},
+	Usage:   "Starts web server",
+	Flags:   startFlags,
+	Action:  startAction,
 }
 
 var startFlags = []cli.Flag{
@@ -36,8 +40,10 @@ var startFlags = []cli.Flag{
 	},
 }
 
+// startAction start the web server and initializes the daemon
 func startAction(ctx *cli.Context) error {
 	conf := config.NewConfig(ctx)
+	service.SetConfig(conf)
 
 	if err := conf.CreateDirectories(); err != nil {
 		return err
@@ -47,10 +53,10 @@ func startAction(ctx *cli.Context) error {
 		fmt.Printf("NAME                  VALUE\n")
 		fmt.Printf("detach-server         %t\n", conf.DetachServer())
 
-		fmt.Printf("sql-host              %s\n", conf.SqlServerHost())
-		fmt.Printf("sql-port              %d\n", conf.SqlServerPort())
-		fmt.Printf("sql-password          %s\n", conf.SqlServerPassword())
-		fmt.Printf("sql-path              %s\n", conf.SqlServerPath())
+		fmt.Printf("tidb-host             %s\n", conf.TidbServerHost())
+		fmt.Printf("tidb-port             %d\n", conf.TidbServerPort())
+		fmt.Printf("tidb-password         %s\n", conf.TidbServerPassword())
+		fmt.Printf("tidb-path             %s\n", conf.TidbServerPath())
 
 		fmt.Printf("http-host             %s\n", conf.HttpServerHost())
 		fmt.Printf("http-port             %d\n", conf.HttpServerPort())
@@ -74,8 +80,10 @@ func startAction(ctx *cli.Context) error {
 		log.Fatal(err)
 	}
 
-	conf.MigrateDb()
+	// initialize the database
+	conf.InitDb()
 
+	// check if daemon is running, if not initialize the daemon
 	dctx := new(daemon.Context)
 	dctx.LogFileName = conf.LogFilename()
 	dctx.PidFileName = conf.PIDFilename()
@@ -96,8 +104,8 @@ func startAction(ctx *cli.Context) error {
 		}
 
 		if child != nil {
-			if !file.Overwrite(conf.PIDFilename(), []byte(strconv.Itoa(child.Pid))) {
-				log.Fatalf("failed writing process id to \"%s\"", conf.PIDFilename())
+			if !fs.Overwrite(conf.PIDFilename(), []byte(strconv.Itoa(child.Pid))) {
+				log.Fatalf("failed writing process id to %s", txt.Quote(conf.PIDFilename()))
 			}
 
 			log.Infof("daemon started with process id %v\n", child.Pid)
@@ -105,18 +113,25 @@ func startAction(ctx *cli.Context) error {
 		}
 	}
 
-	log.Infof("starting web server at %s:%d", conf.HttpServerHost(), conf.HttpServerPort())
-
 	if conf.ReadOnly() {
 		log.Infof("read-only mode enabled")
 	}
 
+	// start web server
 	go server.Start(cctx, conf)
 
+	// start share & sync workers
+	workers.Start(conf)
+
+	// set up proper shutdown of daemon and web server
 	quit := make(chan os.Signal)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
 	<-quit
+
+	// stop share & sync workers
+	workers.Stop()
+
 	log.Info("shutting down...")
 	conf.Shutdown()
 	cancel()

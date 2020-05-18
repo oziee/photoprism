@@ -6,14 +6,11 @@
             <v-edit-dialog
                     :return-value.sync="album.AlbumName"
                     lazy
-                    @save="onSave(album)"
+                    @save="updateAlbum()"
                     class="p-inline-edit">
-                                        <v-toolbar-title v-if="album.AlbumName">
-                                            {{ album.AlbumName }}
-                                        </v-toolbar-title>
-                <v-toolbar-title v-else>
-                                            <v-icon>edit</v-icon>
-                                        </v-toolbar-title>
+                <v-toolbar-title>
+                    {{ album.AlbumName }}
+                </v-toolbar-title>
                 <template v-slot:input>
                     <v-text-field
                             v-model="album.AlbumName"
@@ -32,17 +29,17 @@
                 <v-icon>refresh</v-icon>
             </v-btn>
 
-            <v-btn icon v-if="settings.view === 'details'" @click.stop="setView('list')">
+            <v-btn icon v-if="settings.view === 'cards'" @click.stop="setView('list')">
                 <v-icon>view_list</v-icon>
             </v-btn>
             <v-btn icon v-else-if="settings.view === 'list'" @click.stop="setView('mosaic')">
                 <v-icon>view_comfy</v-icon>
             </v-btn>
-            <v-btn icon v-else @click.stop="setView('details')">
+            <v-btn icon v-else @click.stop="setView('cards')">
                 <v-icon>view_column</v-icon>
             </v-btn>
 
-            <v-btn icon @click.stop="searchExpanded = !searchExpanded" class="p-expand-search">
+            <v-btn icon @click.stop="expand" class="p-expand-search">
                 <v-icon>{{ searchExpanded ? 'keyboard_arrow_up' : 'keyboard_arrow_down' }}</v-icon>
             </v-btn>
         </v-toolbar>
@@ -106,6 +103,18 @@
                                   :items="options.sorting">
                         </v-select>
                     </v-flex>
+                    <v-flex xs12 pa-2>
+                        <v-textarea flat solo auto-grow
+                                    browser-autocomplete="off"
+                                    :label="labels.description"
+                                    :rows="2"
+                                    :key="growDesc"
+                                    color="secondary-dark"
+                                    style="background-color: white"
+                                    v-model="album.AlbumDescription"
+                                    @change="updateAlbum">
+                        </v-textarea>
+                    </v-flex>
                 </v-layout>
             </v-card-text>
         </v-card>
@@ -122,30 +131,35 @@
             filterChange: Function,
         },
         data() {
-            const cameras = [{ID: 0, CameraModel: this.$gettext('All Cameras')}].concat(this.$config.getValue('cameras'));
+            const cameras = [{
+                ID: 0,
+                CameraModel: this.$gettext('All Cameras')
+            }].concat(this.$config.get('cameras'));
             const countries = [{
                 code: '',
                 name: this.$gettext('All Countries')
-            }].concat(this.$config.getValue('countries'));
+            }].concat(this.$config.get('countries'));
 
             return {
                 searchExpanded: false,
                 options: {
                     'views': [
-                        // {value: 'tiles', text: this.$gettext('Tiles')},
                         {value: 'mosaic', text: this.$gettext('Mosaic')},
-                        {value: 'details', text: this.$gettext('Details')},
+                        {value: 'cards', text: this.$gettext('Cards')},
                         {value: 'list', text: this.$gettext('List')},
                     ],
                     'countries': countries,
                     'cameras': cameras,
                     'sorting': [
-                        {value: 'imported', text: this.$gettext('Recently imported')},
+                        {value: 'imported', text: this.$gettext('Recently added')},
                         {value: 'newest', text: this.$gettext('Newest first')},
                         {value: 'oldest', text: this.$gettext('Oldest first')},
+                        {value: 'similar', text: this.$gettext('Group by similarity')},
+                        {value: 'relevance', text: this.$gettext('Most relevant')},
                     ],
                 },
                 labels: {
+                    description: this.$gettext("Description"),
                     search: this.$gettext("Search"),
                     view: this.$gettext("View"),
                     country: this.$gettext("Country"),
@@ -153,15 +167,28 @@
                     sort: this.$gettext("Sort By"),
                     name: this.$gettext("Album Name"),
                 },
-                titleRule: v => v.length <= 25 || this.$gettext("Title too long"),
+                titleRule: v => v.length <= this.$config.get('clip') || this.$gettext("Title too long"),
+                growDesc: false,
             };
         },
         methods: {
+            expand() {
+                this.searchExpanded = !this.searchExpanded;
+                this.growDesc = !this.growDesc;
+            },
+            updateAlbum() {
+                this.album.update();
+            },
             dropdownChange() {
                 this.filterChange();
 
                 if (window.innerWidth < 600) {
                     this.searchExpanded = false;
+                }
+
+                if (this.filter.order !== this.album.AlbumOrder) {
+                    this.album.AlbumOrder = this.filter.order;
+                    this.updateAlbum()
                 }
             },
             setView(name) {
@@ -171,9 +198,6 @@
             clearQuery() {
                 this.filter.q = '';
                 this.filterChange();
-            },
-            onSave(album) {
-                album.update().then((a) => window.document.title = `PhotoPrism: ${a.AlbumName}`);
             },
         }
     };

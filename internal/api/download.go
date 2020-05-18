@@ -5,8 +5,9 @@ import (
 	"path"
 
 	"github.com/photoprism/photoprism/internal/config"
-	"github.com/photoprism/photoprism/internal/file"
+	"github.com/photoprism/photoprism/internal/entity"
 	"github.com/photoprism/photoprism/internal/query"
+	"github.com/photoprism/photoprism/pkg/fs"
 
 	"github.com/gin-gonic/gin"
 )
@@ -23,8 +24,7 @@ func GetDownload(router *gin.RouterGroup, conf *config.Config) {
 	router.GET("/download/:hash", func(c *gin.Context) {
 		fileHash := c.Param("hash")
 
-		q := query.New(conf.OriginalsPath(), conf.Db())
-		f, err := q.FindFileByHash(fileHash)
+		f, err := query.FileByHash(fileHash)
 
 		if err != nil {
 			c.AbortWithStatusJSON(404, gin.H{"error": err.Error()})
@@ -33,17 +33,17 @@ func GetDownload(router *gin.RouterGroup, conf *config.Config) {
 
 		fileName := path.Join(conf.OriginalsPath(), f.FileName)
 
-		if !file.Exists(fileName) {
+		if !fs.FileExists(fileName) {
 			log.Errorf("could not find original: %s", fileHash)
 			c.Data(404, "image/svg+xml", photoIconSvg)
 
 			// Set missing flag so that the file doesn't show up in search results anymore
 			f.FileMissing = true
-			conf.Db().Save(&f)
+			entity.Db().Save(&f)
 			return
 		}
 
-		downloadFileName := f.DownloadFileName()
+		downloadFileName := f.ShareFileName()
 
 		c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", downloadFileName))
 

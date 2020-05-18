@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/jinzhu/gorm"
-	"github.com/photoprism/photoprism/internal/file"
+	"github.com/photoprism/photoprism/pkg/fs"
 	"github.com/stretchr/testify/assert"
 	"github.com/urfave/cli"
 )
@@ -16,9 +16,10 @@ func TestTestCliContext(t *testing.T) {
 }
 
 func TestTestConfig(t *testing.T) {
-	result := TestConfig()
+	c := TestConfig()
 
-	assert.IsType(t, new(Config), result)
+	assert.IsType(t, new(Config), c)
+	assert.IsType(t, &gorm.DB{}, c.Db())
 }
 
 func TestNewTestParams(t *testing.T) {
@@ -26,16 +27,8 @@ func TestNewTestParams(t *testing.T) {
 
 	assert.IsType(t, new(Params), c)
 
-	assert.Equal(t, file.ExpandFilename("../../assets"), c.AssetsPath)
-	assert.False(t, c.Debug)
-}
-
-func TestNewTestConfig(t *testing.T) {
-	c := NewTestConfig()
-
-	db := c.Db()
-
-	assert.IsType(t, &gorm.DB{}, db)
+	assert.Equal(t, fs.Abs("../../assets"), c.AssetsPath)
+	assert.True(t, c.Debug)
 }
 
 func TestNewTestParamsError(t *testing.T) {
@@ -43,7 +36,7 @@ func TestNewTestParamsError(t *testing.T) {
 
 	assert.IsType(t, new(Params), c)
 
-	assert.Equal(t, file.ExpandFilename("../.."), c.AssetsPath)
+	assert.Equal(t, fs.Abs("../.."), c.AssetsPath)
 	assert.Equal(t, "../../assets/testdata/cache", c.CachePath)
 	assert.False(t, c.Debug)
 }

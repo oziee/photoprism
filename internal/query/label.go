@@ -1,59 +1,43 @@
 package query
 
 import (
-	"fmt"
-	"strings"
-	"time"
-
-	"github.com/gosimple/slug"
-	"github.com/photoprism/photoprism/internal/capture"
 	"github.com/photoprism/photoprism/internal/entity"
-	"github.com/photoprism/photoprism/internal/form"
 )
 
-// LabelResult contains found labels
-type LabelResult struct {
-	// Label
-	ID               uint
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
-	DeletedAt        time.Time
-	LabelUUID        string
-	LabelSlug        string
-	LabelName        string
-	LabelPriority    int
-	LabelCount       int
-	LabelFavorite    bool
-	LabelDescription string
-	LabelNotes       string
-}
-
-// FindLabelBySlug returns a Label based on the slug name.
-func (s *Repo) FindLabelBySlug(labelSlug string) (label entity.Label, err error) {
-	if err := s.db.Where("label_slug = ?", labelSlug).First(&label).Error; err != nil {
+// PhotoLabel returns a photo label entity if exists.
+func PhotoLabel(photoID, labelID uint) (label entity.PhotoLabel, err error) {
+	if err := Db().Where("photo_id = ? AND label_id = ?", photoID, labelID).Preload("Photo").Preload("Label").First(&label).Error; err != nil {
 		return label, err
 	}
 
 	return label, nil
 }
 
-// FindLabelByUUID returns a Label based on the label UUID.
-func (s *Repo) FindLabelByUUID(labelUUID string) (label entity.Label, err error) {
-	if err := s.db.Where("label_uuid = ?", labelUUID).First(&label).Error; err != nil {
+// LabelBySlug returns a Label based on the slug name.
+func LabelBySlug(labelSlug string) (label entity.Label, err error) {
+	if err := Db().Where("label_slug = ? OR custom_slug = ?", labelSlug, labelSlug).Preload("Links").First(&label).Error; err != nil {
 		return label, err
 	}
 
 	return label, nil
 }
 
-// FindLabelThumbBySlug returns a label preview file based on the slug name.
-func (s *Repo) FindLabelThumbBySlug(labelSlug string) (file entity.File, err error) {
-	// s.db.LogMode(true)
+// LabelByUUID returns a Label based on the label UUID.
+func LabelByUUID(labelUUID string) (label entity.Label, err error) {
+	if err := Db().Where("label_uuid = ?", labelUUID).Preload("Links").First(&label).Error; err != nil {
+		return label, err
+	}
 
-	if err := s.db.Where("files.file_primary AND files.deleted_at IS NULL").
+	return label, nil
+}
+
+// LabelThumbBySlug returns a label preview file based on the slug name.
+func LabelThumbBySlug(labelSlug string) (file entity.File, err error) {
+	if err := Db().Where("files.file_primary AND files.deleted_at IS NULL").
 		Joins("JOIN labels ON labels.label_slug = ?", labelSlug).
-		Joins("JOIN photos_labels ON photos_labels.label_id = labels.id AND photos_labels.photo_id = files.photo_id").
-		Order("photos_labels.label_uncertainty ASC").
+		Joins("JOIN photos_labels ON photos_labels.label_id = labels.id AND photos_labels.photo_id = files.photo_id AND photos_labels.uncertainty < 100").
+		Joins("JOIN photos ON photos.id = files.photo_id AND photos.photo_private = 0 AND photos.deleted_at IS NULL").
+		Order("photos.photo_quality DESC, photos_labels.uncertainty ASC").
 		First(&file).Error; err != nil {
 		return file, err
 	}
@@ -61,13 +45,14 @@ func (s *Repo) FindLabelThumbBySlug(labelSlug string) (file entity.File, err err
 	return file, nil
 }
 
-// FindLabelThumbByUUID returns a label preview file based on the label UUID.
-func (s *Repo) FindLabelThumbByUUID(labelUUID string) (file entity.File, err error) {
+// LabelThumbByUUID returns a label preview file based on the label UUID.
+func LabelThumbByUUID(labelUUID string) (file entity.File, err error) {
 	// Search matching label
-	err = s.db.Where("files.file_primary AND files.deleted_at IS NULL").
+	err = Db().Where("files.file_primary AND files.deleted_at IS NULL").
 		Joins("JOIN labels ON labels.label_uuid = ?", labelUUID).
-		Joins("JOIN photos_labels ON photos_labels.label_id = labels.id AND photos_labels.photo_id = files.photo_id").
-		Order("photos_labels.label_uncertainty ASC").
+		Joins("JOIN photos_labels ON photos_labels.label_id = labels.id AND photos_labels.photo_id = files.photo_id AND photos_labels.uncertainty < 100").
+		Joins("JOIN photos ON photos.id = files.photo_id AND photos.photo_private = 0 AND photos.deleted_at IS NULL").
+		Order("photos.photo_quality DESC, photos_labels.uncertainty ASC").
 		First(&file).Error
 
 	if err == nil {
@@ -75,84 +60,13 @@ func (s *Repo) FindLabelThumbByUUID(labelUUID string) (file entity.File, err err
 	}
 
 	// If failed, search for category instead
-	err = s.db.Where("files.file_primary AND files.deleted_at IS NULL").
-		Joins("JOIN photos_labels ON photos_labels.photo_id = files.photo_id").
+	err = Db().Where("files.file_primary AND files.deleted_at IS NULL").
+		Joins("JOIN photos_labels ON photos_labels.photo_id = files.photo_id AND photos_labels.uncertainty < 100").
 		Joins("JOIN categories c ON photos_labels.label_id = c.label_id").
 		Joins("JOIN labels ON c.category_id = labels.id AND labels.label_uuid= ?", labelUUID).
-		Order("photos_labels.label_uncertainty ASC").
+		Joins("JOIN photos ON photos.id = files.photo_id AND photos.photo_private = 0 AND photos.deleted_at IS NULL").
+		Order("photos.photo_quality DESC, photos_labels.uncertainty ASC").
 		First(&file).Error
 
 	return file, err
-}
-
-// Labels searches labels based on their name.
-func (s *Repo) Labels(f form.LabelSearch) (results []LabelResult, err error) {
-	if err := f.ParseQueryString(); err != nil {
-		return results, err
-	}
-
-	defer capture.Time(time.Now(), fmt.Sprintf("search: %+v", f))
-
-	q := s.db.NewScope(nil).DB()
-
-	// q.LogMode(true)
-
-	q = q.Table("labels").
-		Select(`labels.*`).
-		Where("labels.deleted_at IS NULL").
-		Group("labels.id")
-
-	if f.Query != "" {
-		var labelIds []uint
-		var categories []entity.Category
-		var label entity.Label
-
-		slugString := slug.Make(f.Query)
-		likeString := "%" + strings.ToLower(f.Query) + "%"
-
-		if result := s.db.First(&label, "label_slug = ?", slugString); result.Error != nil {
-			log.Infof("search: label \"%s\" not found", f.Query)
-
-			q = q.Where("LOWER(labels.label_name) LIKE ?", likeString)
-		} else {
-			labelIds = append(labelIds, label.ID)
-
-			s.db.Where("category_id = ?", label.ID).Find(&categories)
-
-			for _, category := range categories {
-				labelIds = append(labelIds, category.LabelID)
-			}
-
-			log.Infof("search: label \"%s\" includes %d categories", label.LabelName, len(labelIds))
-
-			q = q.Where("labels.id IN (?)", labelIds)
-		}
-	}
-
-	if f.Favorites {
-		q = q.Where("labels.label_favorite = 1")
-	}
-
-	if !f.All {
-		q = q.Where("labels.label_priority >= 0 OR labels.label_favorite = 1")
-	}
-
-	switch f.Order {
-	case "slug":
-		q = q.Order("labels.label_favorite DESC, label_slug ASC")
-	default:
-		q = q.Order("labels.label_favorite DESC, label_slug ASC")
-	}
-
-	if f.Count > 0 && f.Count <= 1000 {
-		q = q.Limit(f.Count).Offset(f.Offset)
-	} else {
-		q = q.Limit(100).Offset(0)
-	}
-
-	if result := q.Scan(&results); result.Error != nil {
-		return results, result.Error
-	}
-
-	return results, nil
 }

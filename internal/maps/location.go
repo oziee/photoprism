@@ -27,12 +27,12 @@ type Location struct {
 	ID          string
 	LocName     string
 	LocCategory string
-	LocSuburb   string
 	LocLabel    string
 	LocCity     string
 	LocState    string
 	LocCountry  string
 	LocSource   string
+	LocKeywords []string
 }
 
 type LocationSource interface {
@@ -41,20 +41,28 @@ type LocationSource interface {
 	Category() string
 	Name() string
 	City() string
-	Suburb() string
 	State() string
 	Source() string
+	Keywords() []string
 }
 
-func NewLocation(id string) *Location {
+func NewLocation(id, name, category, label, city, state, country, source string, keywords []string) *Location {
 	result := &Location{
-		ID: id,
+		ID:          id,
+		LocName:     name,
+		LocCategory: category,
+		LocLabel:    label,
+		LocCity:     city,
+		LocState:    state,
+		LocCountry:  country,
+		LocSource:   source,
+		LocKeywords: keywords,
 	}
 
 	return result
 }
 
-func (l *Location) Query(api string) error {
+func (l *Location) QueryApi(api string) error {
 	switch api {
 	case "osm":
 		return l.QueryOSM()
@@ -75,11 +83,11 @@ func (l *Location) QueryPlaces() error {
 	l.LocSource = s.Source()
 	l.LocName = s.Name()
 	l.LocCity = s.City()
-	l.LocSuburb = s.Suburb()
 	l.LocState = s.State()
 	l.LocCountry = s.CountryCode()
 	l.LocCategory = s.Category()
 	l.LocLabel = s.Label()
+	l.LocKeywords = s.Keywords()
 
 	return nil
 }
@@ -106,11 +114,11 @@ func (l *Location) Assign(s LocationSource) error {
 
 	l.LocName = s.Name()
 	l.LocCity = s.City()
-	l.LocSuburb = s.Suburb()
 	l.LocState = s.State()
 	l.LocCountry = s.CountryCode()
 	l.LocCategory = s.Category()
 	l.LocLabel = l.label()
+	l.LocKeywords = s.Keywords()
 
 	return nil
 }
@@ -144,16 +152,16 @@ func (l *Location) label() string {
 	return strings.Join(loc[:], ", ")
 }
 
+func (l Location) S2Token() string {
+	return l.ID
+}
+
 func (l Location) Name() string {
 	return l.LocName
 }
 
 func (l Location) Category() string {
 	return l.LocCategory
-}
-
-func (l Location) Suburb() string {
-	return l.LocSuburb
 }
 
 func (l Location) Label() string {
@@ -178,4 +186,12 @@ func (l Location) CountryName() string {
 
 func (l Location) Source() string {
 	return l.LocSource
+}
+
+func (l Location) Keywords() []string {
+	return l.LocKeywords
+}
+
+func (l Location) KeywordString() string {
+	return strings.Join(l.LocKeywords, ", ")
 }

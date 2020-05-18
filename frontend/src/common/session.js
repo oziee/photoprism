@@ -1,13 +1,16 @@
 import Api from "./api";
 import Event from "pubsub-js";
 import User from "../model/user";
+import Socket from "./websocket";
 
 export default class Session {
     /**
      * @param {Storage} storage
+     * @param {Config} config
      */
-    constructor(storage) {
+    constructor(storage, config) {
         this.auth = false;
+        this.config = config;
 
         if (storage.getItem("session_storage") === "true") {
             this.storage = window.sessionStorage;
@@ -24,7 +27,15 @@ export default class Session {
             this.auth = true;
         }
 
-        Event.subscribe("session.logout", this.onLogout.bind(this));
+        Event.subscribe("session.logout", () => {
+            this.onLogout();
+        });
+
+        Event.subscribe("websocket.connected", () => {
+            this.sendClientInfo();
+        });
+
+        this.sendClientInfo();
     }
 
     useSessionStorage() {
@@ -53,6 +64,10 @@ export default class Session {
     setToken(token) {
         this.storage.setItem("session_token", token);
         return this.applyToken(token);
+    }
+
+    setConfig(values) {
+        this.config.setValues(values);
     }
 
     getToken() {
@@ -118,18 +133,36 @@ export default class Session {
         this.storage.removeItem("user");
     }
 
+    sendClientInfo() {
+        const clientInfo = {
+            "session": this.getToken(),
+            "js": window.clientConfig.jsHash,
+            "css": window.clientConfig.cssHash,
+            "version": window.clientConfig.version,
+        };
+
+        try {
+            Socket.send(JSON.stringify(clientInfo));
+        } catch(e) {
+            console.log("can't send client info, websocket not connected (yet)");
+        }
+    }
+
     login(email, password) {
         this.deleteToken();
 
         return Api.post("session", {email: email, password: password}).then(
             (result) => {
+                this.setConfig(result.data.config);
                 this.setToken(result.data.token);
                 this.setUser(new User(result.data.user));
+                this.sendClientInfo();
             }
         );
     }
 
     onLogout() {
+        console.log("ON LOGOUT");
         this.deleteToken();
         window.location = "/";
     }

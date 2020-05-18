@@ -9,7 +9,8 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/photoprism/photoprism/internal/file"
+	"github.com/photoprism/photoprism/pkg/fs"
+	"github.com/photoprism/photoprism/pkg/txt"
 	tf "github.com/tensorflow/tensorflow/tensorflow/go"
 	"github.com/tensorflow/tensorflow/tensorflow/go/op"
 )
@@ -23,15 +24,15 @@ type Detector struct {
 	mutex     sync.Mutex
 }
 
-// NewDetector returns a new detector instance.
-func NewDetector(modelPath string) *Detector {
+// New returns a new detector instance.
+func New(modelPath string) *Detector {
 	return &Detector{modelPath: modelPath, modelTags: []string{"serve"}}
 }
 
-// LabelsFromFile returns matching labels for a jpeg media file.
-func (t *Detector) LabelsFromFile(filename string) (result Labels, err error) {
-	if file.MimeType(filename) != "image/jpeg" {
-		return result, fmt.Errorf("nsfw: \"%s\" is not a jpeg file", filename)
+// File returns matching labels for a jpeg media file.
+func (t *Detector) File(filename string) (result Labels, err error) {
+	if fs.MimeType(filename) != "image/jpeg" {
+		return result, fmt.Errorf("nsfw: %s is not a jpeg file", txt.Quote(filepath.Base(filename)))
 	}
 
 	imageBuffer, err := ioutil.ReadFile(filename)
@@ -75,8 +76,6 @@ func (t *Detector) Labels(img []byte) (result Labels, err error) {
 	if len(output) < 1 {
 		return result, errors.New("result is empty")
 	}
-
-	log.Infof("output: %+v", output[0].Value())
 
 	// Return best labels
 	result = t.getLabels(output[0].Value().([][]float32)[0])
@@ -123,7 +122,7 @@ func (t *Detector) loadModel() error {
 		return nil
 	}
 
-	log.Infof("tensorflow: loading image classification model from \"%s\"", filepath.Base(t.modelPath))
+	log.Infof("tensorflow: loading image classification model from %s", txt.Quote(filepath.Base(t.modelPath)))
 
 	// Load model
 	model, err := tf.LoadSavedModel(t.modelPath, t.modelTags, nil)

@@ -6,17 +6,16 @@ import (
 	"time"
 
 	"github.com/gosimple/slug"
-	"github.com/jinzhu/gorm"
+	"github.com/photoprism/photoprism/pkg/txt"
 )
 
 // Camera model and make (as extracted from UpdateExif metadata)
 type Camera struct {
 	ID                uint   `gorm:"primary_key"`
-	CameraSlug        string `gorm:"type:varbinary(128);unique_index;"`
-	CameraModel       string
-	CameraMake        string
-	CameraType        string
-	CameraOwner       string
+	CameraSlug        string `gorm:"type:varbinary(255);unique_index;"`
+	CameraModel       string `gorm:"type:varchar(255);"`
+	CameraMake        string `gorm:"type:varchar(255);"`
+	CameraType        string `gorm:"type:varchar(255);"`
 	CameraDescription string `gorm:"type:text;"`
 	CameraNotes       string `gorm:"type:text;"`
 	CreatedAt         time.Time
@@ -24,11 +23,24 @@ type Camera struct {
 	DeletedAt         *time.Time `sql:"index"`
 }
 
+var UnknownCamera = Camera{
+	CameraModel: "Unknown",
+	CameraMake:  "",
+	CameraSlug:  "zz",
+}
+
+// CreateUnknownCamera initializes the database with an unknown camera if not exists
+func CreateUnknownCamera() {
+	UnknownCamera.FirstOrCreate()
+}
+
+// NewCamera creates a camera entity from a model name and a make name.
 func NewCamera(modelName string, makeName string) *Camera {
-	makeName = strings.TrimSpace(makeName)
+	modelName = txt.Clip(modelName, txt.ClipDefault)
+	makeName = txt.Clip(makeName, txt.ClipDefault)
 
 	if modelName == "" {
-		modelName = "Unknown"
+		return &UnknownCamera
 	} else if strings.HasPrefix(modelName, makeName) {
 		modelName = strings.TrimSpace(modelName[len(makeName):])
 	}
@@ -36,9 +48,9 @@ func NewCamera(modelName string, makeName string) *Camera {
 	var cameraSlug string
 
 	if makeName != "" {
-		cameraSlug = slug.Make(makeName + " " + modelName)
+		cameraSlug = slug.Make(txt.Clip(makeName+" "+modelName, txt.ClipSlug))
 	} else {
-		cameraSlug = slug.Make(modelName)
+		cameraSlug = slug.Make(txt.Clip(modelName, txt.ClipSlug))
 	}
 
 	result := &Camera{
@@ -50,16 +62,16 @@ func NewCamera(modelName string, makeName string) *Camera {
 	return result
 }
 
-func (m *Camera) FirstOrCreate(db *gorm.DB) *Camera {
-	writeMutex.Lock()
-	defer writeMutex.Unlock()
-	if err := db.FirstOrCreate(m, "camera_model = ? AND camera_make = ?", m.CameraModel, m.CameraMake).Error; err != nil {
+// FirstOrCreate checks if the camera model exist already in the database
+func (m *Camera) FirstOrCreate() *Camera {
+	if err := Db().FirstOrCreate(m, "camera_model = ? AND camera_make = ?", m.CameraModel, m.CameraMake).Error; err != nil {
 		log.Errorf("camera: %s", err)
 	}
 
 	return m
 }
 
+// String returns a string designing the given Camera entity
 func (m *Camera) String() string {
 	if m.CameraMake != "" && m.CameraModel != "" {
 		return fmt.Sprintf("%s %s", m.CameraMake, m.CameraModel)

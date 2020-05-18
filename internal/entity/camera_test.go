@@ -6,16 +6,19 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestCamera_FirstOrCreate(t *testing.T) {
+	t.Run("iphone-se", func(t *testing.T) {
+		camera := NewCamera("iPhone SE", "Apple")
+		camera.FirstOrCreate()
+		assert.GreaterOrEqual(t, camera.ID, uint(1))
+	})
+}
+
 func TestNewCamera(t *testing.T) {
-	t.Run("model Unknown make Nikon", func(t *testing.T) {
+	t.Run("unknown camera", func(t *testing.T) {
 		camera := NewCamera("", "Nikon")
 
-		expected := &Camera{
-			CameraModel: "Unknown",
-			CameraMake:  "Nikon",
-			CameraSlug:  "nikon-unknown",
-		}
-		assert.Equal(t, expected, camera)
+		assert.Equal(t, &UnknownCamera, camera)
 	})
 	t.Run("model EOS 6D make Canon", func(t *testing.T) {
 		camera := NewCamera("EOS 6D", "Canon")
@@ -50,12 +53,7 @@ func TestNewCamera(t *testing.T) {
 	t.Run("model Unknown make Unknown", func(t *testing.T) {
 		camera := NewCamera("", "")
 
-		expected := &Camera{
-			CameraModel: "Unknown",
-			CameraMake:  "",
-			CameraSlug:  "unknown",
-		}
-		assert.Equal(t, expected, camera)
+		assert.Equal(t, &UnknownCamera, camera)
 	})
 }
 
@@ -70,7 +68,12 @@ func TestCamera_String(t *testing.T) {
 		cameraString := camera.String()
 		assert.Equal(t, "XXX", cameraString)
 	})
-	t.Run("model Unkown make Unknown", func(t *testing.T) {
+	t.Run("model Unknown make XXX", func(t *testing.T) {
+		camera := NewCamera("", "test")
+		cameraString := camera.String()
+		assert.Equal(t, "Unknown", cameraString)
+	})
+	t.Run("model Unknown make Unknown", func(t *testing.T) {
 		camera := NewCamera("", "")
 		cameraString := camera.String()
 		assert.Equal(t, "Unknown", cameraString)

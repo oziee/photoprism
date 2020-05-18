@@ -1,7 +1,7 @@
 package photoprism
 
 import (
-	"fmt"
+	"errors"
 	"math"
 	"path/filepath"
 	"sort"
@@ -9,65 +9,131 @@ import (
 	"time"
 
 	"github.com/jinzhu/gorm"
+	"github.com/photoprism/photoprism/internal/classify"
 	"github.com/photoprism/photoprism/internal/entity"
 	"github.com/photoprism/photoprism/internal/event"
-	"github.com/photoprism/photoprism/internal/ling"
+	"github.com/photoprism/photoprism/internal/meta"
+	"github.com/photoprism/photoprism/internal/nsfw"
+	"github.com/photoprism/photoprism/internal/query"
+	"github.com/photoprism/photoprism/pkg/fs"
+	"github.com/photoprism/photoprism/pkg/txt"
 )
 
 const (
-	indexResultUpdated IndexResult = "updated"
-	indexResultAdded   IndexResult = "added"
-	indexResultSkipped IndexResult = "skipped"
-	indexResultFailed  IndexResult = "failed"
+	IndexUpdated   IndexStatus = "updated"
+	IndexAdded     IndexStatus = "added"
+	IndexSkipped   IndexStatus = "skipped"
+	IndexDuplicate IndexStatus = "skipped duplicate"
+	IndexArchived  IndexStatus = "skipped archived"
+	IndexFailed    IndexStatus = "failed"
 )
 
-type IndexResult string
+type IndexStatus string
 
-func (ind *Index) MediaFile(m *MediaFile, o IndexOptions) IndexResult {
+type IndexResult struct {
+	Status    IndexStatus
+	Error     error
+	FileID    uint
+	FileUUID  string
+	PhotoID   uint
+	PhotoUUID string
+}
+
+func (r IndexResult) String() string {
+	return string(r.Status)
+}
+
+func (r IndexResult) Success() bool {
+	return r.Error == nil && r.FileID > 0
+}
+
+func (ind *Index) MediaFile(m *MediaFile, o IndexOptions, originalName string) (result IndexResult) {
+	if m == nil {
+		err := errors.New("index: media file is nil - you might have found a bug")
+		log.Error(err)
+		result.Error = err
+		result.Status = IndexFailed
+		return result
+	}
+
 	start := time.Now()
 
-	var photo entity.Photo
-	var file, primaryFile entity.File
-	var exifData *Exif
 	var photoQuery, fileQuery *gorm.DB
-	var keywords []string
-	var isNSFW bool
+	var locKeywords []string
 
-	labels := Labels{}
-	fileBase := m.Basename()
+	file, primaryFile := entity.File{}, entity.File{}
+
+	photo := entity.Photo{}
+	metaData := meta.Data{}
+	description := entity.Description{}
+	labels := classify.Labels{}
+
+	fileBase := m.Base(ind.conf.Settings().Index.Group)
 	filePath := m.RelativePath(ind.originalsPath())
-	fileName := m.RelativeFilename(ind.originalsPath())
-	fileHash := m.Hash()
+	fileName := m.RelativeName(ind.originalsPath())
+	fileHash := ""
+	fileSize, fileModified := m.Stat()
 	fileChanged := true
 	fileExists := false
 	photoExists := false
 
 	event.Publish("index.indexing", event.Data{
 		"fileHash": fileHash,
+		"fileSize": fileSize,
 		"fileName": fileName,
 		"baseName": filepath.Base(fileName),
 	})
 
-	fileQuery = ind.db.Unscoped().First(&file, "file_hash = ? OR file_name = ?", fileHash, fileName)
+	fileQuery = ind.db.Unscoped().First(&file, "file_name = ?", fileName)
 	fileExists = fileQuery.Error == nil
+
+	if !fileExists && !m.IsSidecar() {
+		fileHash = m.Hash()
+		fileQuery = ind.db.Unscoped().First(&file, "file_hash = ?", fileHash)
+		fileExists = fileQuery.Error == nil
+
+		if fileExists && fs.FileExists(filepath.Join(ind.conf.OriginalsPath(), file.FileName)) {
+			result.Status = IndexDuplicate
+			return result
+		}
+	}
 
 	if !fileExists {
 		photoQuery = ind.db.Unscoped().First(&photo, "photo_path = ? AND photo_name = ?", filePath, fileBase)
 
 		if photoQuery.Error != nil && m.HasTimeAndPlace() {
-			exifData, _ = m.Exif()
-			photoQuery = ind.db.Unscoped().First(&photo, "photo_lat = ? AND photo_lng = ? AND taken_at = ?", exifData.Lat, exifData.Lng, exifData.TakenAt)
+			metaData, _ = m.MetaData()
+			photoQuery = ind.db.Unscoped().First(&photo, "photo_lat = ? AND photo_lng = ? AND taken_at = ?", metaData.Lat, metaData.Lng, metaData.TakenAt)
 		}
 	} else {
 		photoQuery = ind.db.Unscoped().First(&photo, "id = ?", file.PhotoID)
-		fileChanged = file.FileHash != fileHash
+
+		fileChanged = file.Changed(fileSize, fileModified)
+
+		if fileChanged {
+			log.Debugf("index: file was modified (new size %d, old size %d, new date %s, old date %s)", fileSize, file.FileSize, fileModified, file.FileModified)
+		}
 	}
 
 	photoExists = photoQuery.Error == nil
 
 	if !fileChanged && photoExists && o.SkipUnchanged() {
-		return indexResultSkipped
+		result.Status = IndexSkipped
+		return result
 	}
+
+	if photoExists {
+		ind.db.Model(&photo).Related(&description)
+	} else {
+		photo.PhotoQuality = -1
+	}
+
+	if fileHash == "" {
+		fileHash = m.Hash()
+	}
+
+	photo.PhotoPath = filePath
+	photo.PhotoName = fileBase
 
 	if !file.FilePrimary {
 		if photoExists {
@@ -79,175 +145,368 @@ func (ind *Index) MediaFile(m *MediaFile, o IndexOptions) IndexResult {
 		}
 	}
 
-	if file.FilePrimary {
-		primaryFile = file
+	if photo.PhotoQuality == -1 && file.FilePrimary {
+		// restore photos that have been purged automatically
+		photo.DeletedAt = nil
+	} else if photo.DeletedAt != nil {
+		// don't waste time indexing deleted / archived photos
+		result.Status = IndexArchived
+		return result
 	}
 
-	photo.PhotoPath = filePath
-	photo.PhotoName = fileBase
+	if m.IsVideo() {
+		photo.PhotoVideo = true
+		metaData, _ = m.MetaData()
 
-	if file.FilePrimary {
-		if !ind.conf.TensorFlowDisabled() && (fileChanged || o.UpdateKeywords || o.UpdateLabels || o.UpdateTitle) {
-			// Image classification labels
-			labels, isNSFW = ind.classifyImage(m)
-			photo.PhotoNSFW = isNSFW
+		file.FileCodec = metaData.Codec
+		file.FileWidth = metaData.Width
+		file.FileHeight = metaData.Height
+		file.FileDuration = metaData.Duration
+		file.FileAspectRatio = metaData.AspectRatio()
+		file.FilePortrait = metaData.Portrait()
+
+		if res := metaData.Megapixels(); res > photo.PhotoResolution {
+			photo.PhotoResolution = res
 		}
 
-		if fileChanged || o.UpdateExif {
-			// Read UpdateExif data
-			if exifData, err := m.Exif(); err == nil {
-				photo.PhotoLat = exifData.Lat
-				photo.PhotoLng = exifData.Lng
-				photo.TakenAt = exifData.TakenAt
-				photo.TakenAtLocal = exifData.TakenAtLocal
-				photo.TimeZone = exifData.TimeZone
-				photo.PhotoAltitude = exifData.Altitude
-				photo.PhotoArtist = exifData.Artist
+		if file.FileWidth == 0 && primaryFile.FileWidth > 0 {
+			file.FileWidth = primaryFile.FileWidth
+			file.FileHeight = primaryFile.FileHeight
+			file.FileAspectRatio = primaryFile.FileAspectRatio
+			file.FilePortrait = primaryFile.FilePortrait
+		}
 
-				if len(exifData.UUID) > 15 {
-					log.Debugf("index: file uuid \"%s\"", exifData.UUID)
+		file.FileDiff = primaryFile.FileDiff
+		file.FileMainColor = primaryFile.FileMainColor
+		file.FileChroma = primaryFile.FileChroma
+		file.FileLuminance = primaryFile.FileLuminance
+		file.FileColors = primaryFile.FileColors
+	}
 
-					file.FileUUID = exifData.UUID
+	// file obviously exists: remove deleted and missing flags
+	file.DeletedAt = nil
+	file.FileMissing = false
+
+	// primary files are used for rendering thumbnails and image classification (plus sidecar files if they exist)
+	if file.FilePrimary {
+		primaryFile = file
+
+		if !ind.conf.DisableTensorFlow() && (fileChanged || o.Rescan) {
+			// Image classification via TensorFlow
+			labels = ind.classifyImage(m)
+
+			if !photoExists && ind.conf.Settings().Features.Private && ind.conf.DetectNSFW() {
+				photo.PhotoPrivate = ind.NSFW(m)
+			}
+		}
+
+		if fileChanged || o.Rescan {
+			// read metadata from embedded Exif and JSON sidecar file (if exists)
+			if metaData, err := m.MetaData(); err == nil {
+				photo.SetTitle(metaData.Title, entity.SrcMeta)
+				photo.SetDescription(metaData.Description, entity.SrcMeta)
+				photo.SetTakenAt(metaData.TakenAt, metaData.TakenAtLocal, metaData.TimeZone, entity.SrcMeta)
+				photo.SetCoordinates(metaData.Lat, metaData.Lng, metaData.Altitude, entity.SrcMeta)
+
+				if photo.Description.NoNotes() {
+					photo.Description.PhotoNotes = metaData.Comment
+				}
+
+				if photo.Description.NoSubject() {
+					photo.Description.PhotoSubject = metaData.Subject
+				}
+
+				if photo.Description.NoKeywords() {
+					photo.Description.PhotoKeywords = metaData.Keywords
+				}
+
+				if photo.Description.NoArtist() && metaData.Artist != "" {
+					photo.Description.PhotoArtist = metaData.Artist
+				}
+
+				if photo.Description.NoArtist() && metaData.CameraOwner != "" {
+					photo.Description.PhotoArtist = metaData.CameraOwner
+				}
+
+				if photo.NoCameraSerial() {
+					photo.CameraSerial = metaData.CameraSerial
+				}
+
+				if len(metaData.UniqueID) > 15 {
+					log.Debugf("index: file uuid %s", txt.Quote(metaData.UniqueID))
+
+					file.FileUUID = metaData.UniqueID
 				}
 			}
 		}
 
-		if fileChanged || o.UpdateCamera {
+		if photo.CameraSrc == entity.SrcAuto && (fileChanged || o.Rescan) {
 			// Set UpdateCamera, Lens, Focal Length and F Number
-			photo.Camera = entity.NewCamera(m.CameraModel(), m.CameraMake()).FirstOrCreate(ind.db)
-			photo.Lens = entity.NewLens(m.LensModel(), m.LensMake()).FirstOrCreate(ind.db)
+			photo.Camera = entity.NewCamera(m.CameraModel(), m.CameraMake()).FirstOrCreate()
+			photo.Lens = entity.NewLens(m.LensModel(), m.LensMake()).FirstOrCreate()
 			photo.PhotoFocalLength = m.FocalLength()
 			photo.PhotoFNumber = m.FNumber()
 			photo.PhotoIso = m.Iso()
 			photo.PhotoExposure = m.Exposure()
 		}
 
-		if fileChanged || o.UpdateKeywords || o.UpdateLocation || o.UpdateTitle {
-			locKeywords, locLabels := ind.indexLocation(m, &photo, labels, fileChanged, o)
-			keywords = append(keywords, locKeywords...)
-			labels = append(labels, locLabels...)
+		if photo.TakenAt.IsZero() || photo.TakenAtLocal.IsZero() {
+			photo.SetTakenAt(m.DateCreated(), m.DateCreated(), "", entity.SrcAuto)
 		}
 
-		if photo.NoTitle() || (fileChanged || o.UpdateTitle) && photo.PhotoTitleChanged == false && photo.NoLocation() {
-			if len(labels) > 0 && labels[0].Priority >= -1 && labels[0].Uncertainty <= 85 && labels[0].Name != "" {
-				photo.PhotoTitle = fmt.Sprintf("%s / %s", ling.Title(labels[0].Name), m.DateCreated().Format("2006"))
-			} else if !photo.TakenAtLocal.IsZero() {
-				var daytimeString string
-				hour := photo.TakenAtLocal.Hour()
-
-				switch {
-				case hour < 17:
-					daytimeString = "Unknown"
-				case hour < 20:
-					daytimeString = "Sunset"
-				default:
-					daytimeString = "Unknown"
-				}
-
-				photo.PhotoTitle = fmt.Sprintf("%s / %s", daytimeString, photo.TakenAtLocal.Format("2006"))
+		if fileChanged || o.Rescan || photo.NoTitle() {
+			if photo.HasLatLng() {
+				var locLabels classify.Labels
+				locKeywords, locLabels = photo.UpdateLocation(ind.conf.GeoCodingApi())
+				labels = append(labels, locLabels...)
 			} else {
-				photo.PhotoTitle = "Unknown"
+				log.Info("index: no latitude and longitude in metadata")
+
+				photo.Place = &entity.UnknownPlace
+				photo.PlaceID = entity.UnknownPlace.ID
+			}
+		}
+	} else if m.IsXMP() {
+		// TODO: Proof-of-concept for indexing XMP sidecar files
+		if data, err := meta.XMP(m.FileName()); err == nil {
+			photo.SetTitle(data.Title, entity.SrcXmp)
+			photo.SetDescription(data.Description, entity.SrcXmp)
+
+			if photo.Description.NoNotes() && data.Comment != "" {
+				photo.Description.PhotoNotes = data.Comment
 			}
 
-			log.Infof("index: changed empty photo title to \"%s\"", photo.PhotoTitle)
-		}
+			if photo.Description.NoArtist() && data.Artist != "" {
+				photo.Description.PhotoArtist = data.Artist
+			}
 
-		if photo.TakenAt.IsZero() || photo.TakenAtLocal.IsZero() {
-			photo.TakenAt = m.DateCreated()
-			photo.TakenAtLocal = photo.TakenAt
-		}
-	}
-
-	photo.PhotoYear = photo.TakenAt.Year()
-	photo.PhotoMonth = int(photo.TakenAt.Month())
-
-	if photoExists {
-		// Estimate location
-		if o.UpdateLocation && photo.NoLocation() {
-			ind.estimateLocation(&photo)
-		}
-
-		if err := ind.db.Unscoped().Save(&photo).Error; err != nil {
-			log.Errorf("index: %s", err)
-			return indexResultFailed
-		}
-	} else {
-		event.Publish("count.photos", event.Data{
-			"count": 1,
-		})
-
-		photo.PhotoFavorite = false
-
-		if err := ind.db.Create(&photo).Error; err != nil {
-			log.Errorf("index: %s", err)
-			return indexResultFailed
+			if photo.Description.NoCopyright() && data.Copyright != "" {
+				photo.Description.PhotoCopyright = data.Copyright
+			}
 		}
 	}
 
-	if len(labels) > 0 {
-		log.Infof("index: adding labels %+v", labels)
-		ind.addLabels(photo.ID, labels)
+	if len(photo.PlaceID) < 2 {
+		photo.Place = &entity.UnknownPlace
+		photo.PlaceID = entity.UnknownPlace.ID
+		photo.PhotoCountry = entity.UnknownPlace.CountryCode()
 	}
 
-	file.PhotoID = photo.ID
-	file.PhotoUUID = photo.PhotoUUID
+	photo.UpdateYearMonth()
+
+	if originalName != "" {
+		file.OriginalName = originalName
+	}
+
 	file.FileSidecar = m.IsSidecar()
 	file.FileVideo = m.IsVideo()
-	file.FileMissing = false
 	file.FileName = fileName
 	file.FileHash = fileHash
-	file.FileType = string(m.Type())
+	file.FileSize = fileSize
+	file.FileModified = fileModified
+	file.FileType = string(m.FileType())
 	file.FileMime = m.MimeType()
 	file.FileOrientation = m.Orientation()
 
-	if m.IsJpeg() && (fileChanged || o.UpdateColors) {
+	if m.IsJpeg() && (fileChanged || o.Rescan) {
 		// Color information
-		if p, err := m.Colors(ind.thumbnailsPath()); err == nil {
+		if p, err := m.Colors(ind.thumbPath()); err != nil {
+			log.Errorf("index: %s", err.Error())
+		} else {
 			file.FileMainColor = p.MainColor.Name()
 			file.FileColors = p.Colors.Hex()
 			file.FileLuminance = p.Luminance.Hex()
-			file.FileChroma = p.Chroma.Uint()
+			file.FileDiff = p.Luminance.Diff()
+			file.FileChroma = p.Chroma.Value()
 		}
 	}
 
-	if m.IsJpeg() && (fileChanged || o.UpdateSize) {
+	if m.IsJpeg() && (fileChanged || o.Rescan) {
 		if m.Width() > 0 && m.Height() > 0 {
 			file.FileWidth = m.Width()
 			file.FileHeight = m.Height()
 			file.FileAspectRatio = m.AspectRatio()
 			file.FilePortrait = m.Width() < m.Height()
+
+			megapixels := int(math.Round(float64(file.FileWidth*file.FileHeight) / 1000000))
+
+			if megapixels > photo.PhotoResolution {
+				photo.PhotoResolution = megapixels
+			}
 		}
 	}
 
-	if file.FilePrimary && (fileChanged || o.UpdateKeywords || o.UpdateTitle) {
-		keywords = append(keywords, file.FileMainColor)
-		keywords = append(keywords, labels.Keywords()...)
-		photo.IndexKeywords(keywords, ind.db)
+	if photoExists {
+		// Estimate location
+		if o.Rescan && photo.NoLocation() {
+			ind.estimateLocation(&photo)
+		}
+
+		if err := ind.db.Unscoped().Save(&photo).Error; err != nil {
+			log.Errorf("index: %s", err)
+			result.Status = IndexFailed
+			result.Error = err
+			return result
+		}
+	} else {
+		photo.PhotoFavorite = false
+
+		if err := ind.db.Create(&photo).Error; err != nil {
+			log.Errorf("index: %s", err)
+			result.Status = IndexFailed
+			result.Error = err
+			return result
+		}
+
+		event.Publish("count.photos", event.Data{
+			"count": 1,
+		})
+
+		if photo.PhotoPrivate {
+			event.Publish("count.private", event.Data{
+				"count": 1,
+			})
+		}
+
+		if photo.PhotoVideo {
+			event.Publish("count.videos", event.Data{
+				"count": 1,
+			})
+		}
+
+		event.EntitiesCreated("photos", []entity.Photo{photo})
 	}
+
+	photo.AddLabels(labels)
+
+	file.PhotoID = photo.ID
+	result.PhotoID = photo.ID
+
+	file.PhotoUUID = photo.PhotoUUID
+	result.PhotoUUID = photo.PhotoUUID
+
+	if file.FilePrimary && (fileChanged || o.Rescan) {
+		labels := photo.ClassifyLabels()
+
+		if err := photo.UpdateTitle(labels); err != nil {
+			log.Warnf("%s (%s)", err.Error(), photo.PhotoUUID)
+		}
+
+		w := txt.Keywords(photo.Description.PhotoKeywords)
+
+		if NonCanonical(fileBase) {
+			w = append(w, txt.FilenameKeywords(filePath)...)
+			w = append(w, txt.FilenameKeywords(fileBase)...)
+		}
+
+		w = append(w, locKeywords...)
+		w = append(w, txt.FilenameKeywords(file.OriginalName)...)
+		w = append(w, file.FileMainColor)
+		w = append(w, labels.Keywords()...)
+
+		photo.Description.PhotoKeywords = strings.Join(txt.UniqueWords(w), ", ")
+
+		if photo.Description.PhotoKeywords != "" {
+			log.Debugf("index: updated photo keywords (%s)", photo.Description.PhotoKeywords)
+		} else {
+			log.Debug("index: no photo keywords")
+		}
+
+		photo.PhotoQuality = photo.QualityScore()
+
+		if err := ind.db.Unscoped().Save(&photo).Error; err != nil {
+			log.Errorf("index: %s", err)
+			result.Status = IndexFailed
+			result.Error = err
+			return result
+		}
+
+		if err := photo.IndexKeywords(); err != nil {
+			log.Warnf("%s (%s)", err.Error(), photo.PhotoUUID)
+		}
+	} else {
+		if photo.PhotoQuality >= 0 {
+			photo.PhotoQuality = photo.QualityScore()
+		}
+
+		if err := ind.db.Unscoped().Save(&photo).Error; err != nil {
+			log.Errorf("index: %s", err)
+			result.Status = IndexFailed
+			result.Error = err
+			return result
+		}
+	}
+
+	result.Status = IndexUpdated
 
 	if fileQuery.Error == nil {
 		file.UpdatedIn = int64(time.Since(start))
 
 		if err := ind.db.Unscoped().Save(&file).Error; err != nil {
 			log.Errorf("index: %s", err)
-			return indexResultFailed
+			result.Status = IndexFailed
+			result.Error = err
+			return result
+		}
+	} else {
+		file.CreatedIn = int64(time.Since(start))
+
+		if err := ind.db.Create(&file).Error; err != nil {
+			log.Errorf("index: %s", err)
+			result.Status = IndexFailed
+			result.Error = err
+			return result
 		}
 
-		return indexResultUpdated
+		result.Status = IndexAdded
 	}
 
-	file.CreatedIn = int64(time.Since(start))
+	if photo.PhotoVideo && file.FilePrimary {
+		if err := file.UpdateVideoInfos(); err != nil {
+			log.Errorf("index: %s", err)
+		}
+	}
 
-	if err := ind.db.Create(&file).Error; err != nil {
+	result.FileID = file.ID
+	result.FileUUID = file.FileUUID
+
+	downloadedAs := fileName
+
+	if originalName != "" {
+		downloadedAs = originalName
+	}
+
+	if err := query.SetDownloadFileID(downloadedAs, file.ID); err != nil {
 		log.Errorf("index: %s", err)
-		return indexResultFailed
 	}
 
-	return indexResultAdded
+	return result
+}
+
+// NSFW returns true if media file might be offensive and detection is enabled.
+func (ind *Index) NSFW(jpeg *MediaFile) bool {
+	filename, err := jpeg.Thumbnail(ind.thumbPath(), "fit_720")
+
+	if err != nil {
+		log.Error(err)
+		return false
+	}
+
+	if nsfwLabels, err := ind.nsfwDetector.File(filename); err != nil {
+		log.Error(err)
+		return false
+	} else {
+		if nsfwLabels.NSFW(nsfw.ThresholdHigh) {
+			log.Warnf("index: %s might contain offensive content", jpeg.RelativeName(ind.originalsPath()))
+			return true
+		}
+	}
+
+	return false
 }
 
 // classifyImage returns all matching labels for a media file.
-func (ind *Index) classifyImage(jpeg *MediaFile) (results Labels, isNSFW bool) {
+func (ind *Index) classifyImage(jpeg *MediaFile) (results classify.Labels) {
 	start := time.Now()
 
 	var thumbs []string
@@ -258,17 +517,17 @@ func (ind *Index) classifyImage(jpeg *MediaFile) (results Labels, isNSFW bool) {
 		thumbs = []string{"tile_224", "left_224", "right_224"}
 	}
 
-	var labels Labels
+	var labels classify.Labels
 
 	for _, thumb := range thumbs {
-		filename, err := jpeg.Thumbnail(ind.thumbnailsPath(), thumb)
+		filename, err := jpeg.Thumbnail(ind.thumbPath(), thumb)
 
 		if err != nil {
 			log.Error(err)
 			continue
 		}
 
-		imageLabels, err := ind.tensorFlow.LabelsFromFile(filename)
+		imageLabels, err := ind.tensorFlow.File(filename)
 
 		if err != nil {
 			log.Error(err)
@@ -276,25 +535,6 @@ func (ind *Index) classifyImage(jpeg *MediaFile) (results Labels, isNSFW bool) {
 		}
 
 		labels = append(labels, imageLabels...)
-	}
-
-	if filename, err := jpeg.Thumbnail(ind.thumbnailsPath(), "fit_720"); err != nil {
-		log.Error(err)
-	} else {
-		if nsfwLabels, err := ind.nsfwDetector.LabelsFromFile(filename); err != nil {
-			log.Error(err)
-		} else {
-			log.Infof("nsfw: %+v", nsfwLabels)
-
-			if nsfwLabels.NSFW() {
-				isNSFW = true
-			}
-
-			if nsfwLabels.Sexy > 0.85 {
-				uncertainty := 100 - int(math.Round(float64(nsfwLabels.Sexy*100)))
-				labels = append(labels, Label{Name: "sexy", Source: "nsfw", Uncertainty: uncertainty, Priority: -1})
-			}
-		}
 	}
 
 	// Sort by priority and uncertainty
@@ -312,148 +552,9 @@ func (ind *Index) classifyImage(jpeg *MediaFile) (results Labels, isNSFW bool) {
 		}
 	}
 
-	if isNSFW {
-		log.Info("index: image might contain offensive content")
-	}
-
 	elapsed := time.Since(start)
 
 	log.Debugf("index: image classification took %s", elapsed)
 
-	return results, isNSFW
-}
-
-func (ind *Index) addLabels(photoId uint, labels Labels) {
-	for _, label := range labels {
-		lm := entity.NewLabel(label.Name, label.Priority).FirstOrCreate(ind.db)
-
-		if lm.New && label.Priority >= 0 {
-			event.Publish("count.labels", event.Data{
-				"count": 1,
-			})
-		}
-
-		if lm.LabelPriority != label.Priority {
-			lm.LabelPriority = label.Priority
-
-			if err := ind.db.Save(&lm).Error; err != nil {
-				log.Errorf("index: %s", err)
-			}
-		}
-
-		plm := entity.NewPhotoLabel(photoId, lm.ID, label.Uncertainty, label.Source).FirstOrCreate(ind.db)
-
-		// Add categories
-		for _, category := range label.Categories {
-			sn := entity.NewLabel(category, -3).FirstOrCreate(ind.db)
-			if err := ind.db.Model(&lm).Association("LabelCategories").Append(sn).Error; err != nil {
-				log.Errorf("index: %s", err)
-			}
-		}
-
-		if plm.LabelUncertainty > label.Uncertainty {
-			plm.LabelUncertainty = label.Uncertainty
-			plm.LabelSource = label.Source
-			if err := ind.db.Save(&plm).Error; err != nil {
-				log.Errorf("index: %s", err)
-			}
-		}
-	}
-}
-
-func (ind *Index) indexLocation(mediaFile *MediaFile, photo *entity.Photo, labels Labels, fileChanged bool, o IndexOptions) ([]string, Labels) {
-	var keywords []string
-
-	location, err := mediaFile.Location()
-
-	if err == nil {
-		location.Lock()
-		defer location.Unlock()
-
-		err = location.Find(ind.db, ind.conf.GeoCodingApi())
-	}
-
-	if err == nil {
-		if location.Place.New {
-			event.Publish("count.places", event.Data{
-				"count": 1,
-			})
-		}
-
-		photo.Location = location
-		photo.LocationID = location.ID
-		photo.Place = location.Place
-		photo.PlaceID = location.PlaceID
-		photo.LocationEstimated = false
-
-		country := entity.NewCountry(location.CountryCode(), location.CountryName()).FirstOrCreate(ind.db)
-
-		if country.New {
-			event.Publish("count.countries", event.Data{
-				"count": 1,
-			})
-		}
-
-		locCategory := location.Category()
-		keywords = append(keywords, location.Keywords()...)
-
-		// Append category from reverse location lookup
-		if locCategory != "" {
-			keywords = append(keywords, locCategory)
-			labels = append(labels, NewLocationLabel(locCategory, 0, -1))
-		}
-
-		if (fileChanged || o.UpdateTitle) && photo.PhotoTitleChanged == false {
-			if title := labels.Title(location.Name()); title != "" { // TODO: User defined title format
-				log.Infof("index: using label \"%s\" to create photo title", title)
-				if location.NoCity() || location.LongCity() || location.CityContains(title) {
-					photo.PhotoTitle = fmt.Sprintf("%s / %s / %s", ling.Title(title), location.CountryName(), photo.TakenAt.Format("2006"))
-				} else {
-					photo.PhotoTitle = fmt.Sprintf("%s / %s / %s", ling.Title(title), location.City(), photo.TakenAt.Format("2006"))
-				}
-			} else if location.Name() != "" && location.City() != "" {
-				if len(location.Name()) > 45 {
-					photo.PhotoTitle = ling.Title(location.Name())
-				} else if len(location.Name()) > 20 || len(location.City()) > 16 || strings.Contains(location.Name(), location.City()) {
-					photo.PhotoTitle = fmt.Sprintf("%s / %s", location.Name(), photo.TakenAt.Format("2006"))
-				} else {
-					photo.PhotoTitle = fmt.Sprintf("%s / %s / %s", location.Name(), location.City(), photo.TakenAt.Format("2006"))
-				}
-			} else if location.City() != "" && location.CountryName() != "" {
-				if len(location.City()) > 20 {
-					photo.PhotoTitle = fmt.Sprintf("%s / %s", location.City(), photo.TakenAt.Format("2006"))
-				} else {
-					photo.PhotoTitle = fmt.Sprintf("%s / %s / %s", location.City(), location.CountryName(), photo.TakenAt.Format("2006"))
-				}
-			}
-
-			if photo.NoTitle() {
-				log.Warnf("index: could not set photo title based on location or labels for \"%s\"", filepath.Base(mediaFile.Filename()))
-			} else {
-				log.Infof("index: new photo title is \"%s\"", photo.PhotoTitle)
-			}
-		}
-	} else {
-		log.Warn(err)
-
-		photo.Place = entity.UnknownPlace
-		photo.PlaceID = entity.UnknownPlace.ID
-	}
-
-	photo.PhotoCountry = photo.Place.LocCountry
-
-	return keywords, labels
-}
-
-func (ind *Index) estimateLocation(photo *entity.Photo) {
-	var recentPhoto entity.Photo
-
-	if result := ind.db.Unscoped().Order(gorm.Expr("ABS(DATEDIFF(taken_at, ?)) ASC", photo.TakenAt)).Preload("Place").First(&recentPhoto); result.Error == nil {
-		if recentPhoto.HasPlace() {
-			photo.Place = recentPhoto.Place
-			photo.PhotoCountry = photo.Place.LocCountry
-			photo.LocationEstimated = true
-			log.Debugf("index: approximate location is \"%s\"", recentPhoto.Place.Label())
-		}
-	}
+	return results
 }

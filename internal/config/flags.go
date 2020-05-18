@@ -4,8 +4,20 @@ import (
 	"github.com/urfave/cli"
 )
 
-// Global CLI flags
+// GlobalFlags lists all CLI flags
 var GlobalFlags = []cli.Flag{
+	cli.StringFlag{
+		Name:   "admin-password",
+		Usage:  "admin password",
+		Value:  "photoprism",
+		EnvVar: "PHOTOPRISM_ADMIN_PASSWORD",
+	},
+	cli.StringFlag{
+		Name:   "webdav-password",
+		Usage:  "WebDAV password (none to disable)",
+		Value:  "",
+		EnvVar: "PHOTOPRISM_WEBDAV_PASSWORD",
+	},
 	cli.BoolFlag{
 		Name:   "debug",
 		Usage:  "run in debug mode",
@@ -17,7 +29,7 @@ var GlobalFlags = []cli.Flag{
 		EnvVar: "PHOTOPRISM_READ_ONLY",
 	},
 	cli.BoolFlag{
-		Name:   "public",
+		Name:   "public, p",
 		Usage:  "no authentication required",
 		EnvVar: "PHOTOPRISM_PUBLIC",
 	},
@@ -30,6 +42,11 @@ var GlobalFlags = []cli.Flag{
 		Name:   "workers, w",
 		Usage:  "number of workers for indexing",
 		EnvVar: "PHOTOPRISM_WORKERS",
+	},
+	cli.IntFlag{
+		Name:   "wakeup-interval",
+		Usage:  "background worker wakeup interval in seconds",
+		EnvVar: "PHOTOPRISM_WAKEUP_INTERVAL",
 	},
 	cli.StringFlag{
 		Name:   "url",
@@ -60,18 +77,6 @@ var GlobalFlags = []cli.Flag{
 		Usage:  "site owner / copyright",
 		Value:  "Anonymous",
 		EnvVar: "PHOTOPRISM_AUTHOR",
-	},
-	cli.StringFlag{
-		Name:   "twitter",
-		Usage:  "twitter handle for sharing",
-		Value:  "@browseyourlife",
-		EnvVar: "PHOTOPRISM_TWITTER",
-	},
-	cli.StringFlag{
-		Name:   "admin-password",
-		Usage:  "admin password",
-		Value:  "photoprism",
-		EnvVar: "PHOTOPRISM_ADMIN_PASSWORD",
 	},
 	cli.StringFlag{
 		Name:   "log-level, l",
@@ -121,10 +126,10 @@ var GlobalFlags = []cli.Flag{
 		EnvVar: "PHOTOPRISM_IMPORT_PATH",
 	},
 	cli.StringFlag{
-		Name:   "export-path",
-		Usage:  "export `PATH`",
-		Value:  "~/Pictures/Export",
-		EnvVar: "PHOTOPRISM_EXPORT_PATH",
+		Name:   "temp-path",
+		Usage:  "temporary `PATH` for uploads and downloads",
+		Value:  "",
+		EnvVar: "PHOTOPRISM_TEMP_PATH",
 	},
 	cli.StringFlag{
 		Name:   "cache-path",
@@ -139,48 +144,48 @@ var GlobalFlags = []cli.Flag{
 		EnvVar: "PHOTOPRISM_ASSETS_PATH",
 	},
 	cli.StringFlag{
-		Name:   "database-driver",
-		Usage:  "database `DRIVER` (internal or mysql)",
-		Value:  "internal",
-		EnvVar: "PHOTOPRISM_DATABASE_DRIVER",
-	},
-	cli.StringFlag{
-		Name:   "database-dsn",
-		Usage:  "database data source name (`DSN`)",
-		Value:  "root:@tcp(localhost:4000)/photoprism?parseTime=true",
-		EnvVar: "PHOTOPRISM_DATABASE_DSN",
-	},
-	cli.StringFlag{
 		Name:   "sips-bin",
-		Usage:  "sips cli binary `FILENAME`",
+		Usage:  "sips executable `FILENAME`",
 		Value:  "sips",
 		EnvVar: "PHOTOPRISM_SIPS_BIN",
 	},
 	cli.StringFlag{
 		Name:   "darktable-bin",
-		Usage:  "darktable cli binary `FILENAME`",
+		Usage:  "darktable-cli executable `FILENAME`",
 		Value:  "darktable-cli",
 		EnvVar: "PHOTOPRISM_DARKTABLE_BIN",
 	},
 	cli.StringFlag{
-		Name:   "exiftool-bin",
-		Usage:  "exiftool cli binary `FILENAME`",
-		Value:  "exiftool",
-		EnvVar: "PHOTOPRISM_EXIFTOOL_BIN",
-	},
-	cli.StringFlag{
 		Name:   "heifconvert-bin",
-		Usage:  "heif conversion cli binary `FILENAME`",
+		Usage:  "heif-convert executable `FILENAME`",
 		Value:  "heif-convert",
 		EnvVar: "PHOTOPRISM_HEIFCONVERT_BIN",
 	},
+	cli.StringFlag{
+		Name:   "ffmpeg-bin",
+		Usage:  "ffmpeg executable `FILENAME`",
+		Value:  "ffmpeg",
+		EnvVar: "PHOTOPRISM_FFMPEG_BIN",
+	},
+	cli.StringFlag{
+		Name:   "exiftool-bin",
+		Usage:  "exiftool executable `FILENAME`",
+		Value:  "exiftool",
+		EnvVar: "PHOTOPRISM_EXIFTOOL_BIN",
+	},
+	cli.BoolFlag{
+		Name:   "sidecar-json, j",
+		Usage:  "sync metadata with json sidecar files as used by exiftool",
+		EnvVar: "PHOTOPRISM_SIDECAR_JSON",
+	},
 	cli.IntFlag{
-		Name:   "http-port, p",
+		Name:   "http-port",
+		Value:  2342,
 		Usage:  "HTTP server port",
 		EnvVar: "PHOTOPRISM_HTTP_PORT",
 	},
 	cli.StringFlag{
-		Name:   "http-host, i",
+		Name:   "http-host",
 		Usage:  "HTTP server host",
 		EnvVar: "PHOTOPRISM_HTTP_HOST",
 	},
@@ -190,39 +195,47 @@ var GlobalFlags = []cli.Flag{
 		EnvVar: "PHOTOPRISM_HTTP_MODE",
 	},
 	cli.IntFlag{
-		Name:   "sql-port, s",
-		Usage:  "built-in SQL server port",
-		EnvVar: "PHOTOPRISM_SQL_PORT",
+		Name:   "tidb-port",
+		Value:  2343,
+		Usage:  "built-in TiDB server port",
+		EnvVar: "PHOTOPRISM_TIDB_PORT",
 	},
 	cli.StringFlag{
-		Name:   "sql-host",
-		Usage:  "built-in SQL server host",
-		EnvVar: "PHOTOPRISM_SQL_HOST",
+		Name:   "tidb-host",
+		Usage:  "built-in TiDB server host",
+		EnvVar: "PHOTOPRISM_TIDB_HOST",
 	},
 	cli.StringFlag{
-		Name:   "sql-path",
-		Usage:  "built-in SQL server storage path",
-		EnvVar: "PHOTOPRISM_SQL_PATH",
+		Name:   "tidb-password",
+		Usage:  "built-in TiDB server password",
+		EnvVar: "PHOTOPRISM_TIDB_PASSWORD",
 	},
 	cli.StringFlag{
-		Name:   "sql-password",
-		Usage:  "built-in SQL server password",
-		EnvVar: "PHOTOPRISM_SQL_PASSWORD",
+		Name:   "tidb-path",
+		Usage:  "built-in TiDB server storage `PATH`",
+		EnvVar: "PHOTOPRISM_TIDB_PATH",
+	},
+	cli.StringFlag{
+		Name:   "database-driver",
+		Usage:  "database `DRIVER` (tidb or mysql)",
+		Value:  "tidb",
+		EnvVar: "PHOTOPRISM_DATABASE_DRIVER",
+	},
+	cli.StringFlag{
+		Name:   "database-dsn",
+		Usage:  "database data source name (`DSN`)",
+		Value:  "root:@tcp(localhost:2343)/photoprism?parseTime=true",
+		EnvVar: "PHOTOPRISM_DATABASE_DSN",
 	},
 	cli.BoolFlag{
-		Name:   "hide-nsfw",
-		Usage:  "hide photos that may be offensive",
-		EnvVar: "PHOTOPRISM_HIDE_NSFW",
+		Name:   "detect-nsfw",
+		Usage:  "flag photos as private that may be offensive",
+		EnvVar: "PHOTOPRISM_DETECT_NSFW",
 	},
 	cli.BoolFlag{
 		Name:   "upload-nsfw",
-		Usage:  "allow uploads that may contain offensive content",
+		Usage:  "allow uploads that may be offensive",
 		EnvVar: "PHOTOPRISM_UPLOAD_NSFW",
-	},
-	cli.BoolFlag{
-		Name:   "tf-disabled, t",
-		Usage:  "don't use TensorFlow for image classification",
-		EnvVar: "PHOTOPRISM_TF_DISABLED",
 	},
 	cli.StringFlag{
 		Name:   "geocoding-api, g",
@@ -231,15 +244,42 @@ var GlobalFlags = []cli.Flag{
 		EnvVar: "PHOTOPRISM_GEOCODING_API",
 	},
 	cli.IntFlag{
-		Name:   "thumb-quality, q",
-		Usage:  "jpeg quality of thumbnails (25-100)",
-		Value:  95,
-		EnvVar: "PHOTOPRISM_THUMB_QUALITY",
+		Name:   "jpeg-quality, q",
+		Usage:  "set to 95 for high-quality thumbnails (25-100)",
+		Value:  90,
+		EnvVar: "PHOTOPRISM_JPEG_QUALITY",
+	},
+	cli.StringFlag{
+		Name:   "thumb-filter, f",
+		Usage:  "resample filter (best to worst: blackman, lanczos, cubic, linear)",
+		Value:  "lanczos",
+		EnvVar: "PHOTOPRISM_THUMB_FILTER",
+	},
+	cli.BoolFlag{
+		Name:   "thumb-uncached, u",
+		Usage:  "on-demand rendering of default thumbnails (high memory and cpu usage)",
+		EnvVar: "PHOTOPRISM_THUMB_UNCACHED",
 	},
 	cli.IntFlag{
-		Name:   "thumb-size",
-		Usage:  "max thumbnail size in pixels (720-16384)",
-		Value:  8192,
+		Name:   "thumb-size, s",
+		Usage:  "default thumbnail size limit in pixels (720-3840)",
+		Value:  2048,
 		EnvVar: "PHOTOPRISM_THUMB_SIZE",
+	},
+	cli.IntFlag{
+		Name:   "thumb-limit, x",
+		Usage:  "on-demand thumbnail size limit in pixels (720-3840)",
+		Value:  3840,
+		EnvVar: "PHOTOPRISM_THUMB_LIMIT",
+	},
+	cli.BoolFlag{
+		Name:   "disable-tf",
+		Usage:  "don't use TensorFlow for image classification",
+		EnvVar: "PHOTOPRISM_DISABLE_TF",
+	},
+	cli.BoolFlag{
+		Name:   "disable-settings",
+		Usage:  "user can not change settings",
+		EnvVar: "PHOTOPRISM_DISABLE_SETTINGS",
 	},
 }

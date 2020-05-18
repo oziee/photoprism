@@ -3,18 +3,19 @@ package entity
 import (
 	"strings"
 
-	"github.com/jinzhu/gorm"
+	"github.com/photoprism/photoprism/pkg/txt"
 )
 
-// Keyword for full text search
+// Keyword used for full text search
 type Keyword struct {
 	ID      uint   `gorm:"primary_key"`
 	Keyword string `gorm:"type:varchar(64);index;"`
 	Skip    bool
 }
 
+// NewKeyword registers a new keyword in database
 func NewKeyword(keyword string) *Keyword {
-	keyword = strings.ToLower(strings.TrimSpace(keyword))
+	keyword = strings.ToLower(txt.Clip(keyword, txt.ClipKeyword))
 
 	result := &Keyword{
 		Keyword: keyword,
@@ -23,10 +24,9 @@ func NewKeyword(keyword string) *Keyword {
 	return result
 }
 
-func (m *Keyword) FirstOrCreate(db *gorm.DB) *Keyword {
-	writeMutex.Lock()
-	defer writeMutex.Unlock()
-	if err := db.FirstOrCreate(m, "keyword = ?", m.Keyword).Error; err != nil {
+// FirstOrCreate checks if the keyword already exist in the database
+func (m *Keyword) FirstOrCreate() *Keyword {
+	if err := Db().FirstOrCreate(m, "keyword = ?", m.Keyword).Error; err != nil {
 		log.Errorf("keyword: %s", err)
 	}
 

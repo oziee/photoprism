@@ -3,6 +3,7 @@ package photoprism
 import (
 	"testing"
 
+	"github.com/photoprism/photoprism/internal/classify"
 	"github.com/photoprism/photoprism/internal/config"
 	"github.com/photoprism/photoprism/internal/nsfw"
 )
@@ -16,18 +17,17 @@ func TestIndex_Start(t *testing.T) {
 
 	conf.InitializeTestData(t)
 
-	tf := NewTensorFlow(conf)
-	nd := nsfw.NewDetector(conf.NSFWModelPath())
-
-	ind := NewIndex(conf, tf, nd)
-
+	tf := classify.New(conf.ResourcesPath(), conf.DisableTensorFlow())
+	nd := nsfw.New(conf.NSFWModelPath())
 	convert := NewConvert(conf)
 
+	ind := NewIndex(conf, tf, nd, convert)
 	imp := NewImport(conf, ind, convert)
+	opt := ImportOptionsMove(conf.ImportPath())
 
-	imp.Start(conf.ImportPath())
+	imp.Start(opt)
 
-	opt := IndexOptionsAll()
+	indexOpt := IndexOptionsAll()
 
-	ind.Start(opt)
+	ind.Start(indexOpt)
 }

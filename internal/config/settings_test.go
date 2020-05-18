@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -11,11 +12,11 @@ func TestNewSettings(t *testing.T) {
 	assert.IsType(t, new(Settings), c)
 }
 
-func TestSettings_SetValuesFromFile(t *testing.T) {
+func TestSettings_Load(t *testing.T) {
 	t.Run("existing filename", func(t *testing.T) {
 		c := NewSettings()
 
-		err := c.SetValuesFromFile("testdata/config.yml")
+		err := c.Load("testdata/config.yml")
 
 		assert.Nil(t, err)
 
@@ -25,15 +26,15 @@ func TestSettings_SetValuesFromFile(t *testing.T) {
 	t.Run("not existing filename", func(t *testing.T) {
 		c := NewSettings()
 
-		err := c.SetValuesFromFile("testdata/config123.yml")
+		err := c.Load("testdata/config123.yml")
 
 		assert.Error(t, err)
 
-		assert.Equal(t, "", c.Theme)
-		assert.Equal(t, "", c.Language)
+		assert.Equal(t, "default", c.Theme)
+		assert.Equal(t, "en", c.Language)
 	})
 }
-func TestSettings_WriteValuesToFile(t *testing.T) {
+func TestSettings_Save(t *testing.T) {
 	t.Run("existing filename", func(t *testing.T) {
 		c := NewSettings()
 		c.Theme = "lavendel"
@@ -42,7 +43,7 @@ func TestSettings_WriteValuesToFile(t *testing.T) {
 		assert.Equal(t, "lavendel", c.Theme)
 		assert.Equal(t, "german", c.Language)
 
-		err := c.WriteValuesToFile("testdata/configEmpty.yml")
+		err := c.Save("testdata/configEmpty.yml")
 
 		assert.Nil(t, err)
 	})
@@ -54,8 +55,14 @@ func TestSettings_WriteValuesToFile(t *testing.T) {
 		assert.Equal(t, "lavendel", c.Theme)
 		assert.Equal(t, "german", c.Language)
 
-		err := c.WriteValuesToFile("testdata/configEmpty123.yml")
+		err := c.Save("testdata/configEmpty123.yml")
 
-		assert.Error(t, err)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if err := os.Remove("testdata/configEmpty123.yml"); err != nil {
+			t.Fatal(err)
+		}
 	})
 }

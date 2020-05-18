@@ -48,29 +48,32 @@ RUN apt-get update && apt-get upgrade && \
     chromium-browser \
     firefox \
     libheif-examples \
-    exiftool
+    exiftool \
+    ffmpeg
 
 # Install RAW to JPEG converter
-RUN add-apt-repository ppa:pmjdebruijn/darktable-release && \
+RUN sh -c "echo 'deb http://download.opensuse.org/repositories/graphics:/darktable/xUbuntu_18.04/ /' > /etc/apt/sources.list.d/graphics:darktable.list" && \
+    wget -qO - https://download.opensuse.org/repositories/graphics:darktable/xUbuntu_18.04/Release.key | apt-key add - && \
     apt-get update && \
     apt-get install darktable && \
     apt-get upgrade && \
     apt-get dist-upgrade
 
-# Install & configure TensorFlow for C
+# Install & configure TensorFlow for C,
+# see https://www.tensorflow.org/install/lang_c
 #
-# Please use other build if processor does not support AVX2:
+# We also have custom builds available:
 # https://dl.photoprism.org/tensorflow/linux/
 #
 ENV LD_LIBRARY_PATH /root/.local/lib:/usr/local/lib:/usr/lib:/lib
 ENV TF_CPP_MIN_LOG_LEVEL 0
 RUN curl -L \
-   "https://dl.photoprism.org/tensorflow/linux/libtensorflow-linux-cpu-1.14.0.tar.gz" | \
+   "https://dl.photoprism.org/tensorflow/linux/libtensorflow-linux-cpu-1.15.2.tar.gz" | \
    tar -C "/usr" -xz
 RUN ldconfig
 
 # Install NodeJS
-RUN curl -sL https://deb.nodesource.com/setup_10.x | bash -
+RUN curl -sL https://deb.nodesource.com/setup_12.x | bash -
 RUN apt-get update && \
     apt-get install nodejs && \
     apt-get clean && \
@@ -82,12 +85,12 @@ RUN npm install --unsafe-perm=true --allow-root -g npm testcafe chromedriver
 RUN npm config set cache ~/.cache/npm
 
 # Install Go
-ENV GOLANG_VERSION 1.13.5
+ENV GOLANG_VERSION 1.14.2
 RUN set -eux; \
 	\
 	url="https://golang.org/dl/go${GOLANG_VERSION}.linux-amd64.tar.gz"; \
 	wget -O go.tgz "$url"; \
-	echo "512103d7ad296467814a6e3f635631bd35574cab3369a97a323c9a585ccaa569 *go.tgz" | sha256sum -c -; \
+	echo "6272d6e940ecb71ea5636ddb5fab3933e087c1356173c61f4a803895e947ebb3 *go.tgz" | sha256sum -c -; \
 	tar -C /usr/local -xzf go.tgz; \
 	rm go.tgz; \
 	export PATH="/usr/local/go/bin:$PATH"; \
@@ -106,16 +109,21 @@ RUN wget "https://dl.photoprism.org/tensorflow/nsfw.zip?${BUILD_TAG}" -O /tmp/ph
 RUN wget "https://dl.photoprism.org/tensorflow/nasnet.zip?${BUILD_TAG}" -O /tmp/photoprism/nasnet.zip
 RUN wget "https://dl.photoprism.org/fixtures/testdata.zip?${BUILD_TAG}" -O /tmp/photoprism/testdata.zip
 
-# Install goimports and richgo (colorizes "go test" output)
+# Install additional tools for development
 RUN env GO111MODULE=off /usr/local/go/bin/go get -u golang.org/x/tools/cmd/goimports
+RUN env GO111MODULE=off /usr/local/go/bin/go get -u github.com/miku/zek/cmd/...
+RUN env GO111MODULE=off /usr/local/go/bin/go get -u github.com/tsliwowicz/go-wrk
 RUN env GO111MODULE=off /usr/local/go/bin/go get -u github.com/kyoh86/richgo
 RUN echo "alias go=richgo" > /root/.bash_aliases
+
+# MariaDB test database settings
+COPY /docker/development/.my.cnf /root/.my.cnf
 
 # Set up project directory
 WORKDIR "/go/src/github.com/photoprism/photoprism"
 
-# Expose HTTP port 2342 plus 4000 for TiDB and 9515 for chromedriver
-EXPOSE 2342 4000 9515
+# Expose HTTP port 2342 plus 2343 for TiDB and 9515 for chromedriver
+EXPOSE 2342 2343 9515
 
 # Keep container running (services can be started manually using a terminal)
 CMD tail -f /dev/null

@@ -18,11 +18,13 @@ class Config {
             title: "PhotoPrism",
         };
 
+        this.$vuetify = null;
+
         Event.subscribe("config.updated", (ev, data) => this.setValues(data));
         Event.subscribe("count", (ev, data) => this.onCount(ev, data));
 
-        if(this.hasValue("settings")) {
-            this.setTheme(this.getValue("settings").theme);
+        if (this.has("settings")) {
+            this.setTheme(this.get("settings").theme);
         } else {
             this.setTheme("default");
         }
@@ -37,8 +39,12 @@ class Config {
 
         for (let key in values) {
             if (values.hasOwnProperty(key)) {
-                this.setValue(key, values[key]);
+                this.set(key, values[key]);
             }
+        }
+
+        if (values.settings) {
+            this.setTheme(values.settings.theme);
         }
 
         return this;
@@ -48,8 +54,14 @@ class Config {
         const type = ev.split(".")[1];
 
         switch (type) {
+        case "videos":
+            this.values.count.videos += data.count;
+            break;
         case "favorites":
             this.values.count.favorites += data.count;
+            break;
+        case "private":
+            this.values.count.private += data.count;
             break;
         case "albums":
             this.values.count.albums += data.count;
@@ -73,14 +85,17 @@ class Config {
         this.values.count;
     }
 
-    updateSettings(values, $vuetify) {
-        this.setValue("settings", values);
-        this.setTheme(values.theme);
-        $vuetify.theme = this.theme;
+    setVuetify(instance) {
+        this.$vuetify = instance;
     }
 
     setTheme(name) {
         this.theme = themes[name] ? themes[name] : themes["default"];
+
+        if (this.$vuetify) {
+            this.$vuetify.theme = this.theme;
+        }
+
         return this;
     }
 
@@ -90,28 +105,28 @@ class Config {
 
     storeValues() {
         this.storage.setItem(this.storage_key, JSON.stringify(this.getValues()));
-
         return this;
     }
 
-    setValue(key, value) {
+    set(key, value) {
         this.values[key] = value;
-
         return this;
     }
 
-    hasValue(key) {
+    has(key) {
         return !!this.values[key];
     }
 
-    getValue(key) {
+    get(key) {
         return this.values[key];
     }
 
-    deleteValue(key) {
-        delete this.values[key];
+    feature(name) {
+        return this.values.settings.features[name];
+    }
 
-        return this;
+    settings() {
+        return this.values.settings;
     }
 }
 

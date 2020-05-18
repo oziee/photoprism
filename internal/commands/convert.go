@@ -4,21 +4,23 @@ import (
 	"time"
 
 	"github.com/photoprism/photoprism/internal/config"
-	"github.com/photoprism/photoprism/internal/photoprism"
+	"github.com/photoprism/photoprism/internal/service"
 	"github.com/urfave/cli"
 )
 
-// Converts RAW files to JPEG images, if no JPEG already exists
+// ConvertCommand is used to register the convert cli command
 var ConvertCommand = cli.Command{
 	Name:   "convert",
-	Usage:  "Converts RAW originals to JPEG",
+	Usage:  "Converts originals in other formats to JPEG",
 	Action: convertAction,
 }
 
+// convertAction converts RAW files to JPEG images, if no JPEG already exists
 func convertAction(ctx *cli.Context) error {
 	start := time.Now()
 
 	conf := config.NewConfig(ctx)
+	service.SetConfig(conf)
 
 	if conf.ReadOnly() {
 		return config.ErrReadOnly
@@ -30,9 +32,11 @@ func convertAction(ctx *cli.Context) error {
 
 	log.Infof("converting RAW images in %s to JPEG", conf.OriginalsPath())
 
-	convert := photoprism.NewConvert(conf)
+	convert := service.Convert()
 
-	convert.Path(conf.OriginalsPath())
+	if err := convert.Start(conf.OriginalsPath()); err != nil {
+		log.Error(err)
+	}
 
 	elapsed := time.Since(start)
 

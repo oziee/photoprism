@@ -1,11 +1,13 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 
-	"github.com/photoprism/photoprism/internal/file"
+	"github.com/photoprism/photoprism/pkg/fs"
+	"github.com/photoprism/photoprism/pkg/txt"
 )
 
 func findExecutable(configBin, defaultBin string) (result string) {
@@ -19,57 +21,65 @@ func findExecutable(configBin, defaultBin string) (result string) {
 		result = path
 	}
 
-	if !file.Exists(result) {
+	if !fs.FileExists(result) {
 		result = ""
 	}
 
 	return result
 }
 
-// CreateDirectories creates all the folders that photoprism needs. These are:
-// OriginalsPath
-// ThumbnailsPath
-// ImportPath
-// ExportPath
+// CreateDirectories creates directories for storing photos, metadata and cache files.
 func (c *Config) CreateDirectories() error {
+	createError := func(path string, err error) (result error) {
+		if fs.FileExists(path) {
+			result = fmt.Errorf("%s is a file, not a folder: please check your configuration", txt.Quote(path))
+		} else {
+			result = fmt.Errorf("can't create %s: please check configuration and permissions", txt.Quote(path))
+		}
+
+		log.Debug(err)
+
+		return result
+	}
+
 	if err := os.MkdirAll(c.OriginalsPath(), os.ModePerm); err != nil {
-		return err
+		return createError(c.OriginalsPath(), err)
 	}
 
 	if err := os.MkdirAll(c.ImportPath(), os.ModePerm); err != nil {
-		return err
+		return createError(c.ImportPath(), err)
 	}
 
-	if err := os.MkdirAll(c.ExportPath(), os.ModePerm); err != nil {
-		return err
+	if err := os.MkdirAll(c.TempPath(), os.ModePerm); err != nil {
+		return createError(c.TempPath(), err)
 	}
 
-	if err := os.MkdirAll(c.ThumbnailsPath(), os.ModePerm); err != nil {
-		return err
+	if err := os.MkdirAll(c.ThumbPath(), os.ModePerm); err != nil {
+		return createError(c.ThumbPath(), err)
 	}
 
 	if err := os.MkdirAll(c.ResourcesPath(), os.ModePerm); err != nil {
-		return err
+		return createError(c.ResourcesPath(), err)
 	}
 
-	if err := os.MkdirAll(c.SqlServerPath(), os.ModePerm); err != nil {
-		return err
+	if err := os.MkdirAll(c.TidbServerPath(), os.ModePerm); err != nil {
+		return createError(c.TidbServerPath(), err)
 	}
 
 	if err := os.MkdirAll(c.TensorFlowModelPath(), os.ModePerm); err != nil {
-		return err
+		return createError(c.TensorFlowModelPath(), err)
 	}
 
 	if err := os.MkdirAll(c.HttpStaticBuildPath(), os.ModePerm); err != nil {
-		return err
+		return createError(c.HttpStaticBuildPath(), err)
 	}
 
 	if err := os.MkdirAll(filepath.Dir(c.PIDFilename()), os.ModePerm); err != nil {
-		return err
+		return createError(filepath.Dir(c.PIDFilename()), err)
 	}
 
 	if err := os.MkdirAll(filepath.Dir(c.LogFilename()), os.ModePerm); err != nil {
-		return err
+		return createError(filepath.Dir(c.LogFilename()), err)
 	}
 
 	return nil
@@ -77,111 +87,124 @@ func (c *Config) CreateDirectories() error {
 
 // ConfigFile returns the config file name.
 func (c *Config) ConfigFile() string {
-	return c.config.ConfigFile
+	return c.params.ConfigFile
 }
 
 // SettingsFile returns the user settings file name.
 func (c *Config) SettingsFile() string {
-	return c.ConfigPath() + "/settings.yml"
+	return filepath.Join(c.ConfigPath(), "settings.yml")
 }
 
 // ConfigPath returns the config path.
 func (c *Config) ConfigPath() string {
-	if c.config.ConfigPath == "" {
-		return c.AssetsPath() + "/config"
+	if c.params.ConfigPath == "" {
+		return filepath.Join(c.AssetsPath(), "config")
 	}
 
-	return c.config.ConfigPath
+	return fs.Abs(c.params.ConfigPath)
 }
 
 // PIDFilename returns the filename for storing the server process id (pid).
 func (c *Config) PIDFilename() string {
-	if c.config.PIDFilename == "" {
-		return c.AssetsPath() + "/photoprism.pid"
+	if c.params.PIDFilename == "" {
+		return filepath.Join(c.AssetsPath(), "photoprism.pid")
 	}
 
-	return c.config.PIDFilename
+	return fs.Abs(c.params.PIDFilename)
 }
 
 // LogFilename returns the filename for storing server logs.
 func (c *Config) LogFilename() string {
-	if c.config.LogFilename == "" {
-		return c.AssetsPath() + "/photoprism.log"
+	if c.params.LogFilename == "" {
+		return filepath.Join(c.AssetsPath(), "photoprism.log")
 	}
 
-	return c.config.LogFilename
+	return fs.Abs(c.params.LogFilename)
 }
 
 // OriginalsPath returns the originals.
 func (c *Config) OriginalsPath() string {
-	return filepath.Clean(c.config.OriginalsPath)
+	return fs.Abs(c.params.OriginalsPath)
 }
 
 // ImportPath returns the import directory.
 func (c *Config) ImportPath() string {
-	return filepath.Clean(c.config.ImportPath)
+	return fs.Abs(c.params.ImportPath)
 }
 
-// ExportPath returns the export directory.
-func (c *Config) ExportPath() string {
-	return filepath.Clean(c.config.ExportPath)
-}
-
-// SipsBin returns the sips binary file name.
+// SipsBin returns the sips executable file name.
 func (c *Config) SipsBin() string {
-	return findExecutable(c.config.SipsBin, "sips")
+	return findExecutable(c.params.SipsBin, "sips")
 }
 
-// DarktableBin returns the darktable-cli binary file name.
+// DarktableBin returns the darktable-cli executable file name.
 func (c *Config) DarktableBin() string {
-	return findExecutable(c.config.DarktableBin, "darktable-cli")
+	return findExecutable(c.params.DarktableBin, "darktable-cli")
 }
 
-// HeifConvertBin returns the heif-convert binary file name.
-func (c *Config) HeifConvertBin() string {
-	return findExecutable(c.config.HeifConvertBin, "heif-convert")
-}
-
-// ExifToolBin returns the exiftool binary file name.
+// ExifToolBin returns the exiftool executable file name.
 func (c *Config) ExifToolBin() string {
-	return findExecutable(c.config.ExifToolBin, "exiftool")
+	return findExecutable(c.params.ExifToolBin, "exiftool")
+}
+
+// SidecarJson returns true if metadata should be synced with json sidecar files as used by exiftool.
+func (c *Config) SidecarJson() bool {
+	if c.ReadOnly() || c.ExifToolBin() == "" {
+		return false
+	}
+
+	return c.params.SidecarJson
+}
+
+// HeifConvertBin returns the heif-convert executable file name.
+func (c *Config) HeifConvertBin() string {
+	return findExecutable(c.params.HeifConvertBin, "heif-convert")
+}
+
+// FFmpegBin returns the ffmpeg executable file name.
+func (c *Config) FFmpegBin() string {
+	return findExecutable(c.params.FFmpegBin, "ffmpeg")
+}
+
+// TempPath returns a temporary directory name for uploads and downloads.
+func (c *Config) TempPath() string {
+	if c.params.TempPath == "" {
+		return filepath.Join(os.TempDir(), "photoprism")
+	}
+
+	return fs.Abs(c.params.TempPath)
 }
 
 // CachePath returns the path to the cache.
 func (c *Config) CachePath() string {
-	return c.config.CachePath
-}
-
-// ThumbnailsPath returns the path to the cached thumbnails.
-func (c *Config) ThumbnailsPath() string {
-	return c.CachePath() + "/thumbnails"
+	return fs.Abs(c.params.CachePath)
 }
 
 // AssetsPath returns the path to the assets.
 func (c *Config) AssetsPath() string {
-	return c.config.AssetsPath
+	return fs.Abs(c.params.AssetsPath)
 }
 
 // ResourcesPath returns the path to the app resources like static files.
 func (c *Config) ResourcesPath() string {
-	if c.config.ResourcesPath == "" {
-		return c.AssetsPath() + "/resources"
+	if c.params.ResourcesPath == "" {
+		return filepath.Join(c.AssetsPath(), "resources")
 	}
 
-	return c.config.ResourcesPath
+	return fs.Abs(c.params.ResourcesPath)
 }
 
 // ExamplesPath returns the example files path.
 func (c *Config) ExamplesPath() string {
-	return c.ResourcesPath() + "/examples"
+	return filepath.Join(c.ResourcesPath(), "examples")
 }
 
 // TensorFlowModelPath returns the tensorflow model path.
 func (c *Config) TensorFlowModelPath() string {
-	return c.ResourcesPath() + "/nasnet"
+	return filepath.Join(c.ResourcesPath(), "nasnet")
 }
 
 // NSFWModelPath returns the NSFW tensorflow model path.
 func (c *Config) NSFWModelPath() string {
-	return c.ResourcesPath() + "/nsfw"
+	return filepath.Join(c.ResourcesPath(), "nsfw")
 }

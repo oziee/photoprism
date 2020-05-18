@@ -5,8 +5,7 @@
             :color="color"
             :timeout="0"
             :class="textColor"
-            top
-            right
+            :bottom="true"
     >
         {{ text }}
         <v-btn
@@ -49,6 +48,11 @@
                 // get message from data object
                 let m = data.msg;
 
+                if (!m || !m.length) {
+                    console.warn("notify: error message missing in api response");
+                    return;
+                }
+
                 // first letter uppercase
                 m = m.replace(/^./, m[0].toUpperCase());
 
@@ -83,7 +87,7 @@
             },
 
             addInfoMessage: function (message) {
-                this.addMessage('info', 'white--text', message, 1250);
+                this.addMessage('info', 'white--text', message, 2000);
             },
 
             addMessage: function (color, textColor, message, delay) {

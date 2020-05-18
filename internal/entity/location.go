@@ -2,54 +2,39 @@ package entity
 
 import (
 	"strings"
-	"sync"
 	"time"
 
-	"github.com/jinzhu/gorm"
 	"github.com/photoprism/photoprism/internal/maps"
-	"github.com/photoprism/photoprism/internal/s2"
-	"github.com/photoprism/photoprism/internal/ling"
+	"github.com/photoprism/photoprism/pkg/s2"
+	"github.com/photoprism/photoprism/pkg/txt"
 )
 
-var locationMutex = sync.Mutex{}
-
-// Photo location
+// Location used to associate photos to location
 type Location struct {
 	ID          string `gorm:"type:varbinary(16);primary_key;auto_increment:false;"`
 	PlaceID     string `gorm:"type:varbinary(16);"`
 	Place       *Place
-	LocName     string `gorm:"type:varchar(100);"`
-	LocCategory string `gorm:"type:varchar(50);"`
-	LocSuburb   string `gorm:"type:varchar(100);"`
+	LocName     string `gorm:"type:varchar(255);"`
+	LocCategory string `gorm:"type:varchar(64);"`
 	LocSource   string `gorm:"type:varbinary(16);"`
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }
 
-// Locks locations for updates
-func (Location) Lock() {
-	locationMutex.Lock()
-}
-
-// Unlock locations for updates
-func (Location) Unlock() {
-	locationMutex.Unlock()
-}
-
-func NewLocation(lat, lng float64) *Location {
+// NewLocation creates a location using a token extracted from coordinate
+func NewLocation(lat, lng float32) *Location {
 	result := &Location{}
 
-	result.ID = s2.Token(lat, lng)
+	result.ID = s2.Token(float64(lat), float64(lng))
 
 	return result
 }
 
-func (m *Location) Find(db *gorm.DB, api string) error {
-	writeMutex.Lock()
-	defer writeMutex.Unlock()
+// Find gets the location using either the db or the api if not in the db
+func (m *Location) Find(api string) error {
+	db := Db()
 
-	if err := db.First(m, "id = ?", m.ID).Error; err == nil {
-		m.Place = FindPlace(m.PlaceID, db)
+	if err := db.Preload("Place").First(m, "id = ?", m.ID).Error; err == nil {
 		return nil
 	}
 
@@ -57,117 +42,131 @@ func (m *Location) Find(db *gorm.DB, api string) error {
 		ID: m.ID,
 	}
 
-	if err := l.Query(api); err != nil {
+	if err := l.QueryApi(api); err != nil {
 		return err
 	}
 
-	m.Place = FindPlaceByLabel(l.ID, l.LocLabel, db)
-
-	if m.Place.NoID() {
-		m.Place.ID = l.ID
-		m.Place.LocLabel = l.LocLabel
-		m.Place.LocCity = l.LocCity
-		m.Place.LocState = l.LocState
-		m.Place.LocCountry = l.LocCountry
+	if place := FindPlaceByLabel(l.S2Token(), l.Label()); place != nil {
+		m.Place = place
+	} else {
+		m.Place = &Place{
+			ID:          l.S2Token(),
+			LocLabel:    l.Label(),
+			LocCity:     l.City(),
+			LocState:    l.State(),
+			LocCountry:  l.CountryCode(),
+			LocKeywords: l.KeywordString(),
+		}
 	}
 
-	m.LocName = l.LocName
-	m.LocCategory = l.LocCategory
-	m.LocSuburb = l.LocSuburb
-	m.LocSource = l.LocSource
+	m.LocName = l.Name()
+	m.LocCategory = l.Category()
+	m.LocSource = l.Source()
 
-	if err := db.Create(m).Error; err != nil {
-		log.Errorf("location: %s", err)
+	if err := db.Create(m).Error; err == nil {
+		return nil
+	} else if err := db.Preload("Place").First(m, "id = ?", m.ID).Error; err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (m *Location) Keywords() []string {
-	result := []string{
-		strings.ToLower(m.City()),
-		strings.ToLower(m.Suburb()),
-		strings.ToLower(m.State()),
-		strings.ToLower(m.CountryName()),
-		strings.ToLower(m.Category()),
+// Keywords computes keyword based on a Location
+func (m *Location) Keywords() (result []string) {
+	if m.Place == nil {
+		log.Errorf("location: place for %s is nil - you might have found a bug", m.ID)
+		return result
 	}
 
-	result = append(result, ling.Keywords(m.Name())...)
-	result = append(result, ling.Keywords(m.Label())...)
-	result = append(result, ling.Keywords(m.Notes())...)
+	result = append(result, txt.Keywords(txt.ReplaceSpaces(m.City(), "-"))...)
+	result = append(result, txt.Keywords(txt.ReplaceSpaces(m.State(), "-"))...)
+	result = append(result, txt.Keywords(txt.ReplaceSpaces(m.CountryName(), "-"))...)
+	result = append(result, txt.Keywords(m.Category())...)
+	result = append(result, txt.Keywords(m.Name())...)
+	result = append(result, txt.Keywords(m.Place.LocKeywords)...)
+
+	result = txt.UniqueWords(result)
 
 	return result
 }
 
+// Unknown checks if the location has no id
 func (m *Location) Unknown() bool {
 	return m.ID == ""
 }
 
+// Name returns name of location
 func (m *Location) Name() string {
 	return m.LocName
 }
 
+// NoName checks if the location has no name
 func (m *Location) NoName() bool {
 	return m.LocName == ""
 }
 
+// Category returns the location category
 func (m *Location) Category() string {
 	return m.LocCategory
 }
 
+// NoCategory checks id the location has no category
 func (m *Location) NoCategory() bool {
 	return m.LocCategory == ""
 }
 
-func (m *Location) Suburb() string {
-	return m.LocSuburb
-}
-
-func (m *Location) NoSuburb() bool {
-	return m.LocSuburb == ""
-}
-
+// Label returns the location place label
 func (m *Location) Label() string {
 	return m.Place.Label()
 }
 
+// City returns the location place city
 func (m *Location) City() string {
 	return m.Place.City()
 }
 
+// LongCity checks if the city name is more than 16 char
 func (m *Location) LongCity() bool {
 	return len(m.City()) > 16
 }
 
+// NoCity checks if the location has no city
 func (m *Location) NoCity() bool {
 	return m.City() == ""
 }
 
+// CityContains checks if the location city contains the text string
 func (m *Location) CityContains(text string) bool {
 	return strings.Contains(text, m.City())
 }
 
+// State returns the location place state
 func (m *Location) State() string {
 	return m.Place.State()
 }
 
+// NoState checks if the location place has no state
 func (m *Location) NoState() bool {
 	return m.Place.State() == ""
 }
 
+// CountryCode returns the location place country code
 func (m *Location) CountryCode() string {
 	return m.Place.CountryCode()
 }
 
+// CountryName returns the location place country name
 func (m *Location) CountryName() string {
 	return m.Place.CountryName()
 }
 
+// Notes returns the locations place notes
 func (m *Location) Notes() string {
 	return m.Place.Notes()
 }
 
+// Source returns the source of location information
 func (m *Location) Source() string {
 	return m.LocSource
 }

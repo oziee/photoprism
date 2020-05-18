@@ -12,10 +12,10 @@ import (
 	"github.com/disintegration/imaging"
 	"github.com/gin-gonic/gin"
 	"github.com/photoprism/photoprism/internal/config"
-	"github.com/photoprism/photoprism/internal/file"
 	"github.com/photoprism/photoprism/internal/form"
 	"github.com/photoprism/photoprism/internal/query"
 	"github.com/photoprism/photoprism/internal/thumb"
+	"github.com/photoprism/photoprism/pkg/fs"
 )
 
 // GET /api/v1/preview
@@ -23,7 +23,7 @@ func GetPreview(router *gin.RouterGroup, conf *config.Config) {
 	router.GET("/preview", func(c *gin.Context) {
 		// TODO: proof of concept - code needs refactoring!
 		t := time.Now().Format("20060102")
-		thumbPath := path.Join(conf.ThumbnailsPath(), "preview", t[0:4], t[4:6])
+		thumbPath := path.Join(conf.ThumbPath(), "preview", t[0:4], t[4:6])
 
 		if err := os.MkdirAll(thumbPath, os.ModePerm); err != nil {
 			log.Error(err)
@@ -33,7 +33,7 @@ func GetPreview(router *gin.RouterGroup, conf *config.Config) {
 
 		previewFilename := fmt.Sprintf("%s/%s.jpg", thumbPath, t[6:8])
 
-		if file.Exists(previewFilename) {
+		if fs.FileExists(previewFilename) {
 			c.File(previewFilename)
 			return
 		}
@@ -45,8 +45,7 @@ func GetPreview(router *gin.RouterGroup, conf *config.Config) {
 		f.Count = 12
 		f.Order = "relevance"
 
-		q := query.New(conf.OriginalsPath(), conf.Db())
-		p, err := q.Photos(f)
+		p, _, err := query.Photos(f)
 
 		if err != nil {
 			log.Error(err)
@@ -65,7 +64,7 @@ func GetPreview(router *gin.RouterGroup, conf *config.Config) {
 		for _, f := range p {
 			fileName := path.Join(conf.OriginalsPath(), f.FileName)
 
-			if !file.Exists(fileName) {
+			if !fs.FileExists(fileName) {
 				log.Errorf("could not find original for thumbnail: %s", fileName)
 				c.Data(http.StatusNotFound, "image/svg+xml", photoIconSvg)
 
@@ -75,7 +74,7 @@ func GetPreview(router *gin.RouterGroup, conf *config.Config) {
 				return
 			}
 
-			thumbnail, err := thumb.FromFile(fileName, f.FileHash, conf.ThumbnailsPath(), thumbType.Width, thumbType.Height, thumbType.Options...)
+			thumbnail, err := thumb.FromFile(fileName, f.FileHash, conf.ThumbPath(), thumbType.Width, thumbType.Height, thumbType.Options...)
 
 			if err != nil {
 				log.Error(err)

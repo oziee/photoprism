@@ -21,18 +21,19 @@
                 <v-icon>refresh</v-icon>
             </v-btn>
 
-            <!-- v-btn icon v-if="settings.view === 'tiles'" @click.stop="setView('details')">
-                <v-icon>view_column</v-icon>
-            </v-btn -->
-
-            <v-btn icon v-if="settings.view === 'details'" @click.stop="setView('list')">
+            <v-btn icon v-if="settings.view === 'cards'" @click.stop="setView('list')">
                 <v-icon>view_list</v-icon>
             </v-btn>
             <v-btn icon v-else-if="settings.view === 'list'" @click.stop="setView('mosaic')">
                 <v-icon>view_comfy</v-icon>
             </v-btn>
-            <v-btn icon v-else @click.stop="setView('details')">
+            <v-btn icon v-else @click.stop="setView('cards')">
                 <v-icon>view_column</v-icon>
+            </v-btn>
+
+            <v-btn icon @click.stop="showUpload()" v-if="!$config.values.readonly && $config.feature('upload')"
+                   class="hidden-sm-and-down">
+                <v-icon>cloud_upload</v-icon>
             </v-btn>
 
             <v-btn icon @click.stop="searchExpanded = !searchExpanded" class="p-expand-search">
@@ -131,65 +132,18 @@
                                   :items="categoryOptions">
                         </v-select>
                     </v-flex>
-                    <!-- v-flex xs6 pa-2 class="p-time-after">
-                        <v-menu v-model="showAfterPicker"
-                                :close-on-content-click="false"
-                                :nudge-right="40"
-                                transition="scale-transition"
-                                offset-y
-                                min-width="290px"
-                        >
-                            <template v-slot:activator="{ on }">
-                                <v-text-field v-model="filter.after"
-                                              :label="labels.after"
-                                              prepend-inner-icon="date_range"
-                                              clearable
-                                              flat solo hide-details
-                                              @change="datepickerChange"
-                                              @click:clear="clearAfter"
-                                              color="secondary-dark"
-                                              v-on="on"
-                                ></v-text-field>
-                            </template>
-                            <v-date-picker v-model="filter.after" color="secondary-dark"
-                                           @input="datepickerChange">
-                            </v-date-picker>
-                        </v-menu>
-                    </v-flex>
-                    <v-flex xs6 pa-2 class="p-time-before">
-                        <v-menu v-model="showBeforePicker"
-                                :close-on-content-click="false"
-                                :nudge-right="40"
-                                transition="scale-transition"
-                                offset-y
-                                min-width="290px"
-                        >
-                            <template v-slot:activator="{ on }">
-                                <v-text-field v-model="filter.before"
-                                              :label="labels.before"
-                                              prepend-inner-icon="date_range"
-                                              flat solo hide-details
-                                              clearable
-                                              color="secondary-dark"
-                                              @change="datepickerChange"
-                                              @click:clear="clearBefore"
-                                              v-on="on"
-                                ></v-text-field>
-                            </template>
-                            <v-date-picker v-model="filter.before" color="secondary-dark"
-                                           @input="datepickerChange">
-                            </v-date-picker>
-                        </v-menu>
-                    </v-flex -->
                 </v-layout>
             </v-card-text>
         </v-card>
     </v-form>
 </template>
 <script>
+    import Event from "pubsub-js";
+
     export default {
         name: 'p-photo-search',
         props: {
+            dirty: Boolean,
             filter: Object,
             settings: Object,
             refresh: Function,
@@ -200,26 +154,26 @@
                 config: this.$config.values,
                 searchExpanded: false,
                 all: {
-                    countries: [{ code: "", name: this.$gettext("All Countries")}],
+                    countries: [{code: "", name: this.$gettext("All Countries")}],
                     cameras: [{ID: 0, CameraModel: this.$gettext("All Cameras")}],
-                    lenses: [{ID: 0, LensModel: "All Lenses"}],
-                    colors: [{label: "All Colors", name: ""}],
+                    lenses: [{ID: 0, LensModel: this.$gettext("All Lenses")}],
+                    colors: [{label: this.$gettext("All Colors"), name: ""}],
                     categories: [{LabelName: "", Title: this.$gettext("All Categories")}],
                 },
                 options: {
                     'views': [
                         {value: 'mosaic', text: this.$gettext('Mosaic')},
-                        {value: 'details', text: this.$gettext('Details')},
+                        {value: 'cards', text: this.$gettext('Cards')},
                         {value: 'list', text: this.$gettext('List')},
                     ],
                     'sorting': [
-                        {value: 'imported', text: this.$gettext('Recently imported')},
+                        {value: 'imported', text: this.$gettext('Recently added')},
                         {value: 'newest', text: this.$gettext('Newest first')},
                         {value: 'oldest', text: this.$gettext('Oldest first')},
+                        {value: 'similar', text: this.$gettext('Group by similarity')},
+                        {value: 'relevance', text: this.$gettext('Most relevant')},
                     ],
                 },
-                // showAfterPicker: false,
-                // showBeforePicker: false,
                 labels: {
                     search: this.$gettext("Search"),
                     view: this.$gettext("View"),
@@ -252,13 +206,17 @@
                 return this.all.categories.concat(this.config.categories);
             },
             yearOptions() {
-                let result = [{"year": 0, "label": "All Years"}];
+                let result = [
+                    {"year": 0, "label": this.$gettext("All Years")},
+                ];
 
                 if (this.config.years) {
                     for (let i = 0; i < this.config.years.length; i++) {
                         result.push({"year": this.config.years[i], "label": this.config.years[i].toString()});
                     }
                 }
+
+                result.push({"year": -1, "label": this.$gettext("Unknown")});
 
                 return result;
             },
@@ -271,21 +229,6 @@
                     this.searchExpanded = false;
                 }
             },
-            /*datepickerChange() {
-                this.showAfterPicker = false;
-                this.showBeforePicker = false;
-
-                this.dropdownChange();
-            },
-            clearBefore() {
-                this.filter.before = '';
-                this.datepickerChange();
-            },
-            clearAfter() {
-                this.filter.after = '';
-                this.datepickerChange();
-            },
-             */
             setView(name) {
                 this.settings.view = name;
                 this.filterChange();
@@ -294,6 +237,9 @@
                 this.filter.q = '';
                 this.filterChange();
             },
+            showUpload() {
+                Event.publish("dialog.upload");
+            }
         },
     };
 </script>

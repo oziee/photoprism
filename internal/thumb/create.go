@@ -9,24 +9,25 @@ import (
 	"path"
 	"path/filepath"
 
-	"github.com/photoprism/photoprism/internal/file"
+	"github.com/photoprism/photoprism/pkg/fs"
+	"github.com/photoprism/photoprism/pkg/txt"
 
 	"github.com/disintegration/imaging"
 )
 
-func ResampleOptions(opts ...ResampleOption) (method ResampleOption, filter imaging.ResampleFilter, format file.Type) {
+func ResampleOptions(opts ...ResampleOption) (method ResampleOption, filter imaging.ResampleFilter, format fs.FileType) {
 	method = ResampleFit
 	filter = imaging.Lanczos
-	format = file.TypeJpeg
+	format = fs.TypeJpeg
 
 	for _, option := range opts {
 		switch option {
 		case ResamplePng:
-			format = file.TypePng
+			format = fs.TypePng
 		case ResampleNearestNeighbor:
 			filter = imaging.NearestNeighbor
-		case ResampleLanczos:
-			filter = imaging.Lanczos
+		case ResampleDefault:
+			filter = Filter.Imaging()
 		case ResampleFillTopLeft:
 			method = ResampleFillTopLeft
 		case ResampleFillCenter:
@@ -37,30 +38,30 @@ func ResampleOptions(opts ...ResampleOption) (method ResampleOption, filter imag
 			method = ResampleFit
 		case ResampleResize:
 			method = ResampleResize
-		default:
-			panic(fmt.Errorf("not a valid resample option: %d", option))
 		}
 	}
 
 	return method, filter, format
 }
 
-func Resample(img image.Image, width, height int, opts ...ResampleOption) (result image.Image) {
+func Resample(img *image.Image, width, height int, opts ...ResampleOption) *image.Image {
+	var resImg image.Image
+
 	method, filter, _ := ResampleOptions(opts...)
 
 	if method == ResampleFit {
-		result = imaging.Fit(img, width, height, filter)
+		resImg = imaging.Fit(*img, width, height, filter)
 	} else if method == ResampleFillCenter {
-		result = imaging.Fill(img, width, height, imaging.Center, filter)
+		resImg = imaging.Fill(*img, width, height, imaging.Center, filter)
 	} else if method == ResampleFillTopLeft {
-		result = imaging.Fill(img, width, height, imaging.TopLeft, filter)
+		resImg = imaging.Fill(*img, width, height, imaging.TopLeft, filter)
 	} else if method == ResampleFillBottomRight {
-		result = imaging.Fill(img, width, height, imaging.BottomRight, filter)
+		resImg = imaging.Fill(*img, width, height, imaging.BottomRight, filter)
 	} else if method == ResampleResize {
-		result = imaging.Resize(img, width, height, filter)
+		resImg = imaging.Resize(*img, width, height, filter)
 	}
 
-	return result
+	return &resImg
 }
 
 func Postfix(width, height int, opts ...ResampleOption) (result string) {
@@ -72,20 +73,20 @@ func Postfix(width, height int, opts ...ResampleOption) (result string) {
 }
 
 func Filename(hash string, thumbPath string, width, height int, opts ...ResampleOption) (filename string, err error) {
-	if width < 0 || width > MaxWidth {
-		return "", fmt.Errorf("thumbs: width has an invalid value (%d)", width)
+	if InvalidSize(width) {
+		return "", fmt.Errorf("resample: width exceeds limit (%d)", width)
 	}
 
-	if height < 0 || height > MaxHeight {
-		return "", fmt.Errorf("thumbs: height has an invalid value (%d)", height)
+	if InvalidSize(height) {
+		return "", fmt.Errorf("resample: height exceeds limit (%d)", height)
 	}
 
 	if len(hash) < 4 {
-		return "", fmt.Errorf("thumbs: file hash is empty or too short (\"%s\")", hash)
+		return "", fmt.Errorf("resample: file hash is empty or too short (%s)", txt.Quote(hash))
 	}
 
 	if len(thumbPath) == 0 {
-		return "", errors.New("thumbs: path is empty")
+		return "", errors.New("resample: folder is empty")
 	}
 
 	postfix := Postfix(width, height, opts...)
@@ -100,54 +101,71 @@ func Filename(hash string, thumbPath string, width, height int, opts ...Resample
 	return filename, nil
 }
 
-func FromFile(imageFilename string, hash string, thumbPath string, width, height int, opts ...ResampleOption) (fileName string, err error) {
+func FromCache(imageFilename, hash, thumbPath string, width, height int, opts ...ResampleOption) (fileName string, err error) {
 	if len(hash) < 4 {
-		return "", fmt.Errorf("thumbs: file hash is empty or too short (\"%s\")", hash)
+		return "", fmt.Errorf("resample: file hash is empty or too short (%s)", txt.Quote(hash))
 	}
 
 	if len(imageFilename) < 4 {
-		return "", fmt.Errorf("thumbs: image filename is empty or too short (\"%s\")", imageFilename)
+		return "", fmt.Errorf("resample: image filename is empty or too short (%s)", txt.Quote(imageFilename))
 	}
 
 	fileName, err = Filename(hash, thumbPath, width, height, opts...)
 
 	if err != nil {
-		log.Errorf("thumbs: can't determine filename (%s)", err)
+		log.Error(err)
 		return "", err
 	}
 
-	if file.Exists(fileName) {
+	if fs.FileExists(fileName) {
 		return fileName, nil
+	}
+
+	return "", ErrThumbNotCached
+}
+
+func FromFile(imageFilename, hash, thumbPath string, width, height int, opts ...ResampleOption) (fileName string, err error) {
+	if fileName, err := FromCache(imageFilename, hash, thumbPath, width, height, opts...); err == nil {
+		return fileName, err
+	} else if err != ErrThumbNotCached {
+		return "", err
+	}
+
+	fileName, err = Filename(hash, thumbPath, width, height, opts...)
+
+	if err != nil {
+		log.Error(err)
+		return "", err
 	}
 
 	img, err := imaging.Open(imageFilename, imaging.AutoOrientation(true))
 
 	if err != nil {
-		log.Errorf("can't open original: %s", err)
+		log.Errorf("resample: can't open %s (%s)", txt.Quote(imageFilename), err.Error())
 		return "", err
 	}
 
-	if _, err := Create(img, fileName, width, height, opts...); err != nil {
+	if _, err := Create(&img, fileName, width, height, opts...); err != nil {
 		return "", err
 	}
 
 	return fileName, nil
 }
 
-func Create(img image.Image, fileName string, width, height int, opts ...ResampleOption) (result image.Image, err error) {
-	if width < 0 || width > MaxWidth {
-		return img, fmt.Errorf("thumbs: width has an invalid value (%d)", width)
+func Create(img *image.Image, fileName string, width, height int, opts ...ResampleOption) (result *image.Image, err error) {
+	if InvalidSize(width) {
+		return img, fmt.Errorf("resample: width has an invalid value (%d)", width)
 	}
 
-	if height < 0 || height > MaxHeight {
-		return img, fmt.Errorf("thumbs: height has an invalid value (%d)", height)
+	if InvalidSize(height) {
+		return img, fmt.Errorf("resample: height has an invalid value (%d)", height)
 	}
 
 	result = Resample(img, width, height, opts...)
 
 	var saveOption imaging.EncodeOption
 
-	if filepath.Ext(fileName) == "."+string(file.TypePng) {
+	if filepath.Ext(fileName) == "."+string(fs.TypePng) {
 		saveOption = imaging.PNGCompressionLevel(png.DefaultCompression)
 	} else if width <= 150 && height <= 150 {
 		saveOption = imaging.JPEGQuality(JpegQualitySmall)
@@ -155,10 +173,10 @@ func Create(img image.Image, fileName string, width, height int, opts ...Resampl
 		saveOption = imaging.JPEGQuality(JpegQuality)
 	}
 
-	err = imaging.Save(result, fileName, saveOption)
+	err = imaging.Save(*result, fileName, saveOption)
 
 	if err != nil {
-		log.Errorf("thumbs: failed to save %s", fileName)
+		log.Errorf("resample: failed to save %s", fileName)
 		return result, err
 	}
 

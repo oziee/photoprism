@@ -12,21 +12,23 @@ services:
       - "~/.cache/go-mod:/go/pkg/mod"
     environment:
       PHOTOPRISM_URL: "http://localhost:2342/"
+      PHOTOPRISM_UPLOAD_NSFW: "false"
+      PHOTOPRISM_DETECT_NSFW: "true"
+      PHOTOPRISM_PID_FILENAME: "photoprism.pid"
+      PHOTOPRISM_LOG_FILENAME: "photoprism.log"
+      PHOTOPRISM_DETACH_SERVER: "true"
+      PHOTOPRISM_HTTP_HOST: "0.0.0.0"
+      PHOTOPRISM_HTTP_PORT: 2342
+      PHOTOPRISM_TIDB_HOST: "0.0.0.0"
+      PHOTOPRISM_TIDB_PORT: 2343
+      PHOTOPRISM_TIDB_PASSWORD: "photoprism"
+      PHOTOPRISM_DATABASE_DRIVER: "tidb"
+      PHOTOPRISM_DATABASE_DSN: "root:photoprism@tcp(localhost:2343)/photoprism?parseTime=true"
+      PHOTOPRISM_TEST_DSN: "root:photoprism@tcp(photoprism-db:4001)/photoprism?parseTime=true"
       PHOTOPRISM_TITLE: "PhotoPrism"
       PHOTOPRISM_SUBTITLE: "Browse your life"
       PHOTOPRISM_DESCRIPTION: "Personal Photo Management tested by Travis CI."
       PHOTOPRISM_AUTHOR: "PhotoPrism.org"
-      PHOTOPRISM_TWITTER: "@browseyourlife"
-      PHOTOPRISM_HTTP_HOST: "0.0.0.0"
-      PHOTOPRISM_HTTP_PORT: 2342
-      PHOTOPRISM_SQL_HOST: "0.0.0.0"
-      PHOTOPRISM_SQL_PORT: 4000
-      PHOTOPRISM_SQL_PASSWORD: "photoprism"
-      PHOTOPRISM_DATABASE_DSN: "root:photoprism@tcp(localhost:4000)/photoprism?parseTime=true"
-      PHOTOPRISM_DATABASE_DRIVER: "internal"
-      PHOTOPRISM_PID_FILENAME: "photoprism.pid"
-      PHOTOPRISM_LOG_FILENAME: "photoprism.log"
-      PHOTOPRISM_DETACH_SERVER: "true"
       CODECOV_TOKEN:
       CODECOV_ENV:
       CODECOV_URL:
@@ -41,12 +43,17 @@ services:
       CI_JOB_ID:
 
   photoprism-db:
-    image: mariadb:10.4.11
-    command: mysqld --port=4001 --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --max-connections=1024
+    image: mariadb:10.5
+    command: mysqld --port=4001 --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --max-connections=1024 --innodb-rollback-on-timeout=ON --innodb-lock-wait-timeout=120
     expose:
       - "4001"
+    volumes:
+      - "./scripts/reset-test-db.sql:/docker-entrypoint-initdb.d/reset-test-db.sql"
     environment:
       MYSQL_ROOT_PASSWORD: photoprism
       MYSQL_USER: photoprism
       MYSQL_PASSWORD: photoprism
       MYSQL_DATABASE: photoprism
+
+  webdav-dummy:
+    image: photoprism/webdav:20200327

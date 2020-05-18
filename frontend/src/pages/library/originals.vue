@@ -4,44 +4,47 @@
             <v-container fluid>
                 <p class="subheading">
                     <span v-if="fileName">{{ action }} {{ fileName }}...</span>
-                    <span v-else-if="busy">Indexing photos and sidecar files...</span>
-                    <span v-else-if="completed">Done.</span>
-                    <span v-else>Press button to start indexing...</span>
+                    <span v-else-if="busy">{{ $gettext('Indexing photos and sidecar files...') }}</span>
+                    <span v-else-if="completed">{{ $gettext('Done.') }}</span>
+                    <span v-else>{{ $gettext('Press button to start indexing...') }}</span>
                 </p>
+
+                <v-autocomplete
+                        @change="onChange"
+                        color="secondary-dark"
+                        class="my-3"
+                        hide-details hide-no-data flat solo
+                        v-model="settings.index.path"
+                        browser-autocomplete="off"
+                        :items="dirs"
+                        :loading="loading"
+                        :disabled="busy || loading"
+                        item-text="name"
+                        item-value="path"
+                >
+                </v-autocomplete>
 
                 <p class="options">
                     <v-progress-linear color="secondary-dark" :value="completed"
                                        :indeterminate="busy"></v-progress-linear>
                 </p>
 
-                <v-checkbox
-                        class="mb-0 mt-4 pa-0"
-                        v-model="options.skipUnchanged"
-                        color="secondary-dark"
-                        :disabled="busy"
-                        :label="labels.skipUnchanged"
-                ></v-checkbox>
-                <v-checkbox
-                        class="ma-0 pa-0"
-                        v-model="options.convertRaw"
-                        color="secondary-dark"
-                        :disabled="busy || readonly"
-                        :label="labels.convertRaw"
-                ></v-checkbox>
-                <v-checkbox
-                        class="ma-0 pa-0"
-                        v-model="options.createThumbs"
-                        color="secondary-dark"
-                        :disabled="busy"
-                        :label="labels.createThumbs"
-                ></v-checkbox>
-                <v-checkbox
-                        class="ma-0 pa-0"
-                        v-model="options.groomMetadata"
-                        color="secondary-dark"
-                        :disabled="busy"
-                        :label="labels.groomMetadata"
-                ></v-checkbox>
+                <v-layout wrap align-top class="pb-3">
+                    <v-flex xs12 sm6 lg4 class="px-2 pb-2 pt-2">
+                        <v-checkbox
+                                @change="onChange"
+                                :disabled="busy"
+                                class="ma-0 pa-0"
+                                v-model="settings.index.rescan"
+                                color="secondary-dark"
+                                :label="labels.rescan"
+                                :hint="hints.rescan"
+                                prepend-icon="cached"
+                                persistent-hint
+                        >
+                        </v-checkbox>
+                    </v-flex>
+                </v-layout>
 
                 <v-btn
                         :disabled="!busy"
@@ -63,6 +66,18 @@
                     <translate>Index</translate>
                     <v-icon right dark>update</v-icon>
                 </v-btn>
+
+                <v-alert
+                        :value="true"
+                        color="error"
+                        icon="priority_high"
+                        class="mt-3"
+                        outline
+                        v-if="config.count.hidden > 0"
+                >
+                    The index currently contains {{ config.count.hidden }} hidden files. Their format may not be supported,
+                    they haven't been converted to JPEG yet or there are duplicates.
+                </v-alert>
             </v-container>
         </v-form>
     </div>
@@ -73,34 +88,43 @@
     import Axios from "axios";
     import Notify from "common/notify";
     import Event from "pubsub-js";
+    import Settings from "model/settings";
+    import Util from "common/util";
 
     export default {
         name: 'p-tab-index',
         data() {
+            const root = {"name": "All originals", "path": "/"}
+
             return {
-                readonly: this.$config.getValue("readonly"),
+                settings: new Settings(this.$config.settings()),
+                readonly: this.$config.get("readonly"),
+                config: this.$config.values,
                 started: false,
                 busy: false,
+                loading: false,
                 completed: 0,
                 subscriptionId: "",
                 action: "",
                 fileName: "",
                 source: null,
-                options: {
-                    skipUnchanged: true,
-                    createThumbs: false,
-                    convertRaw: false,
-                    groomMetadata: false,
-                },
+                root: root,
+                dirs: [root],
                 labels: {
-                    skipUnchanged: this.$gettext("Skip unchanged files"),
-                    createThumbs: this.$gettext("Pre-render thumbnails"),
-                    convertRaw: this.$gettext("Convert RAW to JPEG"),
-                    groomMetadata: this.$gettext("Groom metadata and estimate locations"),
+                    rescan: this.$gettext("Complete Rescan"),
+                    convert: this.$gettext("Convert to JPEG"),
+                    path: this.$gettext("Folder"),
+                },
+                hints: {
+                    rescan: this.$gettext("Re-index all originals, including already indexed and unchanged files."),
+                    convert: this.$gettext("File types like RAW might need to be converted so that they can be displayed in a browser. JPEGs will be stored in the same folder next to the original using the best possible quality."),
                 }
             }
         },
         methods: {
+            onChange() {
+                this.settings.save();
+            },
             submit() {
                 // DO NOTHING
             },
@@ -117,7 +141,7 @@
                 const ctx = this;
                 Notify.blockUI();
 
-                Api.post('index', this.options, {cancelToken: this.source.token}).then(function () {
+                Api.post('index', this.settings.index, {cancelToken: this.source.token}).then(function () {
                     Notify.unblockUI();
                     ctx.busy = false;
                     ctx.completed = 100;
@@ -130,7 +154,7 @@
                         return
                     }
 
-                    Notify.error(this.$gettext("Indexing failed"));
+                    Notify.error(ctx.$gettext("Indexing failed"));
 
                     ctx.busy = false;
                     ctx.completed = 0;
@@ -178,6 +202,26 @@
         },
         created() {
             this.subscriptionId = Event.subscribe('index', this.handleEvent);
+            this.loading = true;
+            Api.get('index').then((r) => {
+                const subDirs = r.data.dirs ? r.data.dirs : [];
+                const currentPath = this.settings.index.path;
+                let found = currentPath === this.root.path;
+
+                this.dirs = [this.root];
+
+                for (let i = 0; i < subDirs.length; i++) {
+                    if(currentPath === subDirs[i]) {
+                        found = true;
+                    }
+
+                    this.dirs.push({name: Util.truncate(subDirs[i], 100, "..."), path: subDirs[i]});
+                }
+
+                if(!found) {
+                    this.settings.index.path = this.root.path;
+                }
+            }).finally(() => this.loading = false);
         },
         destroyed() {
             Event.unsubscribe(this.subscriptionId);

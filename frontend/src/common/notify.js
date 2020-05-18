@@ -15,7 +15,7 @@ const Notify = {
     },
     logout: function (message) {
         Event.publish("notify.error", {msg: message});
-        Event.publish("session.logout");
+        Event.publish("session.logout", {msg: message});
     },
     ajaxStart: function() {
         Event.publish("ajax.start");
@@ -36,6 +36,9 @@ const Notify = {
         if(el) {
             el.style.display = "none";
         }
+    },
+    wait: function () {
+        this.warning("Busy, please wait...");
     },
 };
 

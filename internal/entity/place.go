@@ -5,106 +5,114 @@ import (
 
 	"github.com/jinzhu/gorm"
 	"github.com/photoprism/photoprism/internal/maps"
+	"github.com/photoprism/photoprism/pkg/txt"
 )
 
-// Photo place
+// Place used to associate photos to places
 type Place struct {
 	ID          string `gorm:"type:varbinary(16);primary_key;auto_increment:false;"`
-	LocLabel    string `gorm:"type:varbinary(500);unique_index;"`
-	LocCity     string `gorm:"type:varchar(100);"`
-	LocState    string `gorm:"type:varchar(100);"`
-	LocCountry  string `gorm:"type:binary(2);"`
+	LocLabel    string `gorm:"type:varbinary(768);unique_index;"`
+	LocCity     string `gorm:"type:varchar(255);"`
+	LocState    string `gorm:"type:varchar(255);"`
+	LocCountry  string `gorm:"type:varbinary(2);"`
+	LocKeywords string `gorm:"type:varchar(255);"`
 	LocNotes    string `gorm:"type:text;"`
 	LocFavorite bool
+	PhotoCount  int
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 	New         bool `gorm:"-"`
 }
 
-var UnknownPlace = NewPlace("-", "Unknown", "Unknown", "Unknown", "zz")
-
-func CreateUnknownPlace(db *gorm.DB) {
-	UnknownPlace.FirstOrCreate(db)
+// UnknownPlace is defined here to use it as a default
+var UnknownPlace = Place{
+	ID:          "zz",
+	LocLabel:    "Unknown",
+	LocCity:     "Unknown",
+	LocState:    "Unknown",
+	LocCountry:  "zz",
+	LocKeywords: "",
+	LocNotes:    "",
+	LocFavorite: false,
+	PhotoCount:  -1,
 }
 
+// CreateUnknownPlace initializes default place in the database
+func CreateUnknownPlace() {
+	UnknownPlace.FirstOrCreate()
+}
+
+// AfterCreate sets the New column used for database callback
 func (m *Place) AfterCreate(scope *gorm.Scope) error {
 	return scope.SetColumn("New", true)
 }
 
-func FindPlace(token string, db *gorm.DB) *Place {
+// FindPlaceByLabel returns a place from an id or a label
+func FindPlaceByLabel(id string, label string) *Place {
 	place := &Place{}
 
-	if err := db.First(place, "id = ?", token).Error; err != nil {
-		log.Debugf("place: %s for token %s", err.Error(), token)
+	if label == "" {
+		if err := Db().First(place, "id = ?", id).Error; err != nil {
+			log.Debugf("place: %s for id %s", err.Error(), id)
+			return nil
+		}
+	} else if err := Db().First(place, "id = ? OR loc_label = ?", id, label).Error; err != nil {
+		log.Debugf("place: %s for id %s or label %s", err.Error(), id, txt.Quote(label))
+		return nil
 	}
 
 	return place
 }
 
-func FindPlaceByLabel(id string, label string, db *gorm.DB) *Place {
-	place := &Place{}
-
-	if err := db.First(place, "id = ? OR loc_label = ?", id, label).Error; err != nil {
-		log.Debugf("place: %s for id %s or label \"%s\"", err.Error(), id, label)
-	}
-
-	return place
-}
-
-func NewPlace(id, label, city, state, countryCode string) *Place {
-	result := &Place{
-		ID:         id,
-		LocLabel:   label,
-		LocCity:    city,
-		LocState:   state,
-		LocCountry: countryCode,
-	}
-
-	return result
-}
-
-func (m *Place) Find(db *gorm.DB) error {
-	if err := db.First(m, "id = ?", m.ID).Error; err != nil {
+// Find returns db record of place
+func (m *Place) Find() error {
+	if err := Db().First(m, "id = ?", m.ID).Error; err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (m *Place) FirstOrCreate(db *gorm.DB) *Place {
-	writeMutex.Lock()
-	defer writeMutex.Unlock()
-	if err := db.FirstOrCreate(m, "id = ? OR loc_label = ?", m.ID, m.LocLabel).Error; err != nil {
-		log.Debugf("place: %s for token %s or label \"%s\"", err.Error(), m.ID, m.LocLabel)
+// FirstOrCreate checks if the place already exists in the database
+func (m *Place) FirstOrCreate() *Place {
+	if err := Db().FirstOrCreate(m, "id = ? OR loc_label = ?", m.ID, m.LocLabel).Error; err != nil {
+		log.Debugf("place: %s for token %s or label %s", err.Error(), m.ID, txt.Quote(m.LocLabel))
 	}
 
 	return m
 }
 
-func (m *Place) NoID() bool {
-	return m.ID == ""
+// Unknown returns true if this is an unknown place
+func (m Place) Unknown() bool {
+	return m.ID == UnknownPlace.ID
 }
 
-func (m *Place) Label() string {
+// Label returns place label
+func (m Place) Label() string {
 	return m.LocLabel
 }
 
-func (m *Place) City() string {
+// City returns place City
+func (m Place) City() string {
 	return m.LocCity
 }
 
-func (m *Place) State() string {
+// State returns place State
+func (m Place) State() string {
 	return m.LocState
 }
 
-func (m *Place) CountryCode() string {
+// CountryCode returns place CountryCode
+func (m Place) CountryCode() string {
 	return m.LocCountry
 }
 
-func (m *Place) CountryName() string {
+// CountryName returns place CountryName
+func (m Place) CountryName() string {
 	return maps.CountryNames[m.LocCountry]
 }
 
-func (m *Place) Notes() string {
+// Notes returns place Notes
+func (m Place) Notes() string {
 	return m.LocNotes
 }

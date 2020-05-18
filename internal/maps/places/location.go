@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
+	"time"
 
 	gc "github.com/patrickmn/go-cache"
-	"github.com/photoprism/photoprism/internal/s2"
-	"github.com/photoprism/photoprism/internal/ling"
+	"github.com/photoprism/photoprism/pkg/s2"
+	"github.com/photoprism/photoprism/pkg/txt"
 )
 
 // Location
@@ -17,13 +19,26 @@ type Location struct {
 	LocLng      float64 `json:"lng"`
 	LocName     string  `json:"name"`
 	LocCategory string  `json:"category"`
-	LocSuburb   string  `json:"suburb"`
 	Place       Place   `json:"place"`
 	Cached      bool    `json:"-"`
 }
 
 var ReverseLookupURL = "https://places.photoprism.org/v1/location/%s"
+var client = &http.Client{Timeout: 30 * time.Second} // TODO: Change timeout if needed
 
+func NewLocation(id string, lat, lng float64, name, category string, place Place, cached bool) *Location {
+	result := &Location{
+		ID:          id,
+		LocLat:      lat,
+		LocLng:      lng,
+		LocName:     name,
+		LocCategory: category,
+		Place:       place,
+		Cached:      cached,
+	}
+
+	return result
+}
 func FindLocation(id string) (result Location, err error) {
 	if len(id) > 16 || len(id) == 0 {
 		return result, fmt.Errorf("places: invalid location id %s", id)
@@ -46,10 +61,29 @@ func FindLocation(id string) (result Location, err error) {
 
 	log.Debugf("places: query %s", url)
 
-	r, err := http.Get(url)
+	req, err := http.NewRequest(http.MethodGet, url, nil)
 
 	if err != nil {
 		log.Errorf("places: %s", err.Error())
+		return result, err
+	}
+
+	var r *http.Response
+
+	for i := 0; i < 3; i++ {
+		r, err = client.Do(req)
+
+		if err == nil {
+			break
+		}
+	}
+
+	if err != nil {
+		log.Errorf("places: %s", err.Error())
+		return result, err
+	} else if r.StatusCode >= 400 {
+		err = fmt.Errorf("places: request failed with status code %d", r.StatusCode)
+		log.Error(err)
 		return result, err
 	}
 
@@ -77,7 +111,7 @@ func (l Location) CellID() (result string) {
 }
 
 func (l Location) Name() (result string) {
-	return l.LocName
+	return strings.SplitN(l.LocName, "/", 2)[0]
 }
 
 func (l Location) Category() (result string) {
@@ -96,10 +130,6 @@ func (l Location) City() (result string) {
 	return l.Place.LocCity
 }
 
-func (l Location) Suburb() (result string) {
-	return l.LocSuburb
-}
-
 func (l Location) CountryCode() (result string) {
 	return l.Place.LocCountry
 }
@@ -113,7 +143,7 @@ func (l Location) Longitude() (result float64) {
 }
 
 func (l Location) Keywords() (result []string) {
-	return ling.Keywords(l.Label())
+	return txt.UniqueKeywords(l.Place.LocKeywords)
 }
 
 func (l Location) Source() string {

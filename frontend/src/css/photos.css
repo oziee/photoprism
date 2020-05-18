@@ -1,35 +1,89 @@
 #photoprism .p-col-select {
-    width: 50px;
+    width: 66px;
+}
+
+#photoprism .p-col-primary {
+    width: 44px;
 }
 
 #photoprism .p-photo-list tr td:first-child {
-    padding: 0 0 0 16px;
+    padding: 0 0 0 8px;
     text-align: center;
 }
 
-#photoprism .p-photo-list .p-photo-select {
-    margin-left: 0;
-    margin-right: 0;
+#photoprism .p-photo-list .p-photo-select,
+#photoprism .p-photo-list .p-photo-play {
+    margin-left: auto;
+    margin-right: auto;
+    left: 0;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    text-align: center;
 }
 
-#photoprism .p-photo-tiles .p-photo-like,
+#photoprism .p-photo-mosaic .p-photo-private,
+#photoprism .p-photo-cards .p-photo-private {
+    top: 4px;
+    right: 4px;
+}
+
+#photoprism .p-photo-mosaic .p-photo-edit,
+#photoprism .p-photo-cards .p-photo-edit {
+    top: 4px;
+    right: 4px;
+}
+
+#photoprism .p-photo-mosaic .p-photo-merged,
+#photoprism .p-photo-cards .p-photo-merged {
+    top: 4px;
+    left: 4px;
+}
+
+#photoprism .p-photo-mosaic .p-photo-play,
+#photoprism .p-photo-cards .p-photo-play {
+    margin-left: auto;
+    margin-right: auto;
+    left: 0;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    text-align: center;
+}
+
 #photoprism .p-photo-mosaic .p-photo-like,
-#photoprism .p-photo-details .p-photo-like {
-    left: 4px; bottom: 4px;
+#photoprism .p-photo-cards .p-photo-like {
+    left: 4px;
+    bottom: 4px;
 }
 
-#photoprism .p-photo-tiles .p-photo-select,
-#photoprism .p-photo-details .p-photo-select,
-#photoprism .p-photo-mosaic .p-photo-select,
-#photoprism .p-albums-details .p-album-select {
-    right: 4px; bottom: 4px;
+#photoprism .p-photo-cards .p-photo-select,
+#photoprism .p-photo-mosaic .p-photo-select {
+    right: 4px;
+    bottom: 4px;
+}
+
+#photoprism .p-albums-cards .p-album-select,
+#photoprism .p-labels-cards .p-label-select {
+    right: 4px;
+    bottom: 4px;
+}
+
+#photoprism .p-labels-cards .p-label-count {
+    position: absolute;
+    left: 12px;
+    top: 12px;
 }
 
 #photoprism .p-clipboard {
     right: 8px;
-    bottom: 8px;
+    bottom: 12px;
 }
 
 #photoprism .p-clipboard .v-btn.v-btn--disabled:not(.v-btn--icon):not(.v-btn--flat):not(.v-btn--outline) {
-    background-color: rgba(100,100,100,0.5) !important;
+    background-color: rgba(100, 100, 100, 0.5) !important;
+}
+
+#photoprism .p-photo-desc button {
+    text-align: left;
 }

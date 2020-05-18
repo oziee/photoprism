@@ -6,16 +6,16 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/photoprism/photoprism/internal/colors"
 	"github.com/photoprism/photoprism/internal/config"
+	"github.com/photoprism/photoprism/pkg/colors"
+	"github.com/photoprism/photoprism/pkg/fastwalk"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestMediaFile_Colors_Testdata(t *testing.T) {
 	conf := config.TestConfig()
 
-	thumbsPath := conf.CachePath() + "/_tmp"
-
+	thumbsPath := os.TempDir() + "/TestMediaFile_Colors_Testdata"
 	defer os.RemoveAll(thumbsPath)
 
 	/*
@@ -52,20 +52,27 @@ func TestMediaFile_Colors_Testdata(t *testing.T) {
 			Luminance: colors.LightMap{0x9, 0x5, 0xb, 0x6, 0x1, 0x6, 0xa, 0x1, 0x8},
 			Chroma:    20,
 		},
+		"Screenshot 2019-05-21 at 10.45.52.png": {
+			Colors:    colors.Colors{},
+			MainColor: 0,
+			Luminance: colors.LightMap{},
+			Chroma:    0,
+		},
 	}
 
-	err := filepath.Walk(conf.ExamplesPath(), func(filename string, fileInfo os.FileInfo, err error) error {
-		if err != nil {
-			return nil
-		}
-
-		if fileInfo.IsDir() || strings.HasPrefix(filepath.Base(filename), ".") {
+	if err := fastwalk.Walk(conf.ExamplesPath(), func(filename string, info os.FileMode) error {
+		if info.IsDir() || strings.HasPrefix(filepath.Base(filename), ".") {
 			return nil
 		}
 
 		mediaFile, err := NewMediaFile(filename)
 
-		if err != nil || !mediaFile.IsJpeg() {
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if !mediaFile.IsJpeg() {
+			t.Logf("not a jpeg: %s", filepath.Base(mediaFile.FileName()))
 			return nil
 		}
 
@@ -87,10 +94,8 @@ func TestMediaFile_Colors_Testdata(t *testing.T) {
 		})
 
 		return nil
-	})
-
-	if err != nil {
-		t.Log(err.Error())
+	}); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -99,7 +104,7 @@ func TestMediaFile_Colors(t *testing.T) {
 
 	t.Run("cat_brown.jpg", func(t *testing.T) {
 		if mediaFile, err := NewMediaFile(conf.ExamplesPath() + "/cat_brown.jpg"); err == nil {
-			p, err := mediaFile.Colors(conf.ThumbnailsPath())
+			p, err := mediaFile.Colors(conf.ThumbPath())
 
 			t.Log(p, err)
 
@@ -117,7 +122,7 @@ func TestMediaFile_Colors(t *testing.T) {
 
 	t.Run("fern_green.jpg", func(t *testing.T) {
 		if mediaFile, err := NewMediaFile(conf.ExamplesPath() + "/fern_green.jpg"); err == nil {
-			p, err := mediaFile.Colors(conf.ThumbnailsPath())
+			p, err := mediaFile.Colors(conf.ThumbPath())
 
 			t.Log(p, err)
 
@@ -135,7 +140,7 @@ func TestMediaFile_Colors(t *testing.T) {
 
 	t.Run("IMG_4120.JPG", func(t *testing.T) {
 		if mediaFile, err := NewMediaFile(conf.ExamplesPath() + "/IMG_4120.JPG"); err == nil {
-			p, err := mediaFile.Colors(conf.ThumbnailsPath())
+			p, err := mediaFile.Colors(conf.ThumbPath())
 
 			t.Log(p, err)
 
@@ -152,7 +157,7 @@ func TestMediaFile_Colors(t *testing.T) {
 
 	t.Run("leaves_gold.jpg", func(t *testing.T) {
 		if mediaFile, err := NewMediaFile(conf.ExamplesPath() + "/leaves_gold.jpg"); err == nil {
-			p, err := mediaFile.Colors(conf.ThumbnailsPath())
+			p, err := mediaFile.Colors(conf.ThumbPath())
 
 			t.Log(p, err)
 
@@ -166,5 +171,13 @@ func TestMediaFile_Colors(t *testing.T) {
 		} else {
 			t.Error(err)
 		}
+	})
+
+	t.Run("Random.docx", func(t *testing.T) {
+		mediaFile, err := NewMediaFile(conf.ExamplesPath() + "/Random.docx")
+		p, err := mediaFile.Colors(conf.ThumbPath())
+		assert.Error(t, err, "no color information: not a JPEG file")
+		t.Log(p)
+
 	})
 }

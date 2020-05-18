@@ -2,26 +2,33 @@ package commands
 
 import (
 	"context"
+	"errors"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/photoprism/photoprism/internal/config"
-	"github.com/photoprism/photoprism/internal/nsfw"
 	"github.com/photoprism/photoprism/internal/photoprism"
+	"github.com/photoprism/photoprism/internal/service"
 	"github.com/urfave/cli"
 )
 
-// Imports photos from path defined in command-line args
+// ImportCommand is used to register the import cli command
 var ImportCommand = cli.Command{
-	Name:   "import",
-	Usage:  "Imports photos",
-	Action: importAction,
+	Name:    "import",
+	Aliases: []string{"mv"},
+	Usage:   "Moves files to originals folder, converts and indexes them as needed",
+	Action:  importAction,
 }
 
+// importAction moves photos to originals path. Default import path is used if no path argument provided
 func importAction(ctx *cli.Context) error {
 	start := time.Now()
 
 	conf := config.NewConfig(ctx)
+	service.SetConfig(conf)
 
+	// very if copy directory exist and is writable
 	if conf.ReadOnly() {
 		return config.ErrReadOnly
 	}
@@ -36,24 +43,37 @@ func importAction(ctx *cli.Context) error {
 		return err
 	}
 
-	conf.MigrateDb()
+	conf.InitDb()
 
-	log.Infof("importing photos from %s", conf.ImportPath())
+	// get cli first argument
+	sourcePath := strings.TrimSpace(ctx.Args().First())
 
-	tensorFlow := photoprism.NewTensorFlow(conf)
-	nsfwDetector := nsfw.NewDetector(conf.NSFWModelPath())
+	if sourcePath == "" {
+		sourcePath = conf.ImportPath()
+	} else {
+		abs, err := filepath.Abs(sourcePath)
 
-	ind := photoprism.NewIndex(conf, tensorFlow, nsfwDetector)
+		if err != nil {
+			return err
+		}
 
-	convert := photoprism.NewConvert(conf)
+		sourcePath = abs
+	}
 
-	imp := photoprism.NewImport(conf, ind, convert)
+	if sourcePath == conf.OriginalsPath() {
+		return errors.New("import folder is identical with originals")
+	}
 
-	imp.Start(conf.ImportPath())
+	log.Infof("moving media files from %s to %s", sourcePath, conf.OriginalsPath())
+
+	imp := service.Import()
+	opt := photoprism.ImportOptionsMove(sourcePath)
+
+	imp.Start(opt)
 
 	elapsed := time.Since(start)
 
-	log.Infof("photo import completed in %s", elapsed)
+	log.Infof("import completed in %s", elapsed)
 	conf.Shutdown()
 	return nil
 }

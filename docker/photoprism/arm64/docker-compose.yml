@@ -1,0 +1,66 @@
+version: '3.3'
+
+# Example docker-compose config file for production use
+# Container image on Docker Hub: https://hub.docker.com/r/photoprism/photoprism/
+# To keep photoprism running, add "restart: always"
+#
+# Usage: docker-compose up
+
+services:
+  photoprism:
+    image: photoprism/photoprism-arm64:latest
+    security_opt:
+      - seccomp:unconfined
+    ports:
+      - 2342:2342 # [local port]:[container port]
+      # - 2343:2343 # Database (built-in TiDB)
+    healthcheck: # Optional
+      test: "photoprism status"
+      interval: 60s
+      timeout: 15s
+      retries: 5
+    environment: # Run "photoprism help" and "photoprism config" too see all config options and current values
+      PHOTOPRISM_URL: "https://demo.photoprism.org/"
+      PHOTOPRISM_TITLE: "PhotoPrism"
+      PHOTOPRISM_SUBTITLE: "Browse your life"
+      PHOTOPRISM_DESCRIPTION: "Personal Photo Management powered by Go and Google TensorFlow. Free and open-source."
+      PHOTOPRISM_AUTHOR: "Anonymous"
+      PHOTOPRISM_UPLOAD_NSFW: "true"
+      PHOTOPRISM_DETECT_NSFW: "false"
+      PHOTOPRISM_EXPERIMENTAL: "false"
+      PHOTOPRISM_DEBUG: "false"
+      PHOTOPRISM_READONLY: "false"
+      PHOTOPRISM_PUBLIC: "false"
+      PHOTOPRISM_DISABLE_SETTINGS: "false"
+      PHOTOPRISM_HTTP_HOST: "0.0.0.0"
+      PHOTOPRISM_HTTP_PORT: 2342
+      PHOTOPRISM_TIDB_HOST: "0.0.0.0"
+      PHOTOPRISM_TIDB_PORT: 2343 # Port for built-in TiDB SQL server (driver "tidb")
+      PHOTOPRISM_TIDB_PASSWORD: "photoprism" # Plain text only (username "root")
+      PHOTOPRISM_ADMIN_PASSWORD: "photoprism" # Plain text or bcrypt hash (escape "$" with "$$")
+      PHOTOPRISM_WEBDAV_PASSWORD: "photoprism" # Plain text only (username "photoprism")
+      PHOTOPRISM_DATABASE_DRIVER: "tidb" # Change to "mysql" for external MySQL or MariaDB
+      PHOTOPRISM_DATABASE_DSN: "root:photoprism@tcp(localhost:2343)/photoprism?parseTime=true"
+      # PHOTOPRISM_DATABASE_DRIVER: "mysql" # Using MariaDB or MySQL instead of the internal TiDB is optional
+      # PHOTOPRISM_DATABASE_DSN: "photoprism:photoprism@tcp(photoprism-db:3306)/photoprism?parseTime=true"
+      PHOTOPRISM_JPEG_QUALITY: 90 # Use 95 for high-quality thumbnails (requires more storage)
+      PHOTOPRISM_THUMB_FILTER: "lanczos" # Resample filter, best to worst: blackman, lanczos, cubic, linear
+      PHOTOPRISM_THUMB_UNCACHED: "false" # On-demand rendering of default thumbnails (high memory and cpu usage)
+      PHOTOPRISM_THUMB_SIZE: 2048 # Default thumbnail size limit (default 2048, min 720, max 3840)
+      # PHOTOPRISM_THUMB_SIZE: 3840 # For retina screens (requires more storage)
+      PHOTOPRISM_THUMB_LIMIT: 3840 # On-demand thumbnail size limit (default 2048, min 720, max 3840)
+      # PHOTOPRISM_SIDECAR_JSON: "true" # sync metadata with json sidecar files as used by exiftool
+    volumes:
+      - "~/Pictures/Originals:/photoprism/originals" # [local path]:[container path]
+      - "~/Pictures/Import:/photoprism/import" # [local path]:[container path] (optional)
+      - "photoprism-config:/photoprism/config" # keep settings
+      - "photoprism-cache:/photoprism/cache" # keep thumbnail cache
+      - "photoprism-database:/photoprism/database" # keep database files
+
+volumes: # keep this
+  photoprism-config:
+    driver: local
+  photoprism-cache:
+    driver: local
+  photoprism-database:
+    driver: local

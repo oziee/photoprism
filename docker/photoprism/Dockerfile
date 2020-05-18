@@ -1,4 +1,4 @@
-FROM photoprism/development:20191214 as build
+FROM photoprism/development:20200509 as build
 
 # Set up project directory
 WORKDIR "/go/src/github.com/photoprism/photoprism"
@@ -13,62 +13,79 @@ FROM ubuntu:18.04
 # Set environment variables
 ENV DEBIAN_FRONTEND noninteractive
 
+# Configure apt-get
+RUN echo 'Acquire::Retries "10";' > /etc/apt/apt.conf.d/80retry
+RUN echo 'APT::Install-Recommends "false";' > /etc/apt/apt.conf.d/80recommends
+RUN echo 'APT::Install-Suggests "false";' > /etc/apt/apt.conf.d/80suggests
+RUN echo 'APT::Get::Assume-Yes "true";' > /etc/apt/apt.conf.d/80forceyes
+RUN echo 'APT::Get::Fix-Missing "true";' > /etc/apt/apt.conf.d/80fixmissin
+
 # Install additional distribution packages
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        curl \
-        unzip \
-        nano \
         wget \
         ca-certificates \
         tzdata \
         libheif-examples \
-        exiftool && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+        gnupg \
+        gpg-agent \
+        apt-utils \
+        add-apt-key \
+        exiftool \
+        ffmpeg
 
 # Copy dependencies
-COPY --from=build /etc/apt/sources.list.d/pmjdebruijn-ubuntu-darktable-release-bionic.list /etc/apt/sources.list.d/pmjdebruijn-ubuntu-darktable-release-bionic.list
-COPY --from=build /etc/apt/trusted.gpg.d/pmjdebruijn_ubuntu_darktable-release.gpg /etc/apt/trusted.gpg.d/pmjdebruijn_ubuntu_darktable-release.gpg
 COPY --from=build /usr/lib/libtensorflow.so /usr/lib/libtensorflow.so
 COPY --from=build /usr/lib/libtensorflow_framework.so /usr/lib/libtensorflow_framework.so
 RUN ldconfig
 
-# Install darktable (RAW to JPEG converter)
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends darktable && \
+# Install RAW to JPEG converter
+RUN sh -c "echo 'deb http://download.opensuse.org/repositories/graphics:/darktable/xUbuntu_18.04/ /' > /etc/apt/sources.list.d/graphics:darktable.list" && \
+    wget -qO - https://download.opensuse.org/repositories/graphics:darktable/xUbuntu_18.04/Release.key | apt-key add - && \
+    apt-get update && \
+    apt-get install darktable && \
+    apt-get upgrade && \
+    apt-get dist-upgrade && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Create and configure photoprism user
-RUN useradd -ms /bin/bash photoprism
-USER photoprism
+WORKDIR /photoprism
 
-WORKDIR /home/photoprism
-ENV PATH /home/photoprism/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ENV TF_CPP_MIN_LOG_LEVEL 2
-ENV PHOTOPRISM_CONFIG_FILE /home/photoprism/.config/photoprism/photoprism.yml
 
-# Copy assets to /home/photoprism
-COPY --chown=photoprism --from=build /root/.local/bin/photoprism /home/photoprism/.local/bin/photoprism
-COPY --chown=photoprism --from=build /root/.local/share/photoprism /home/photoprism/.local/share/photoprism
-COPY --chown=photoprism --from=build /root/.config/photoprism /home/photoprism/.config/photoprism
+ENV PATH /photoprism/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+ENV PHOTOPRISM_ORIGINALS_PATH /photoprism/originals
+ENV PHOTOPRISM_IMPORT_PATH /photoprism/import
+ENV PHOTOPRISM_TIDB_PATH /photoprism/database
+ENV PHOTOPRISM_TEMP_PATH /photoprism/temp
+ENV PHOTOPRISM_CACHE_PATH /photoprism/cache
+ENV PHOTOPRISM_CONFIG_PATH /photoprism/config
+ENV PHOTOPRISM_CONFIG_FILE /photoprism/config/photoprism.yml
+ENV PHOTOPRISM_ASSETS_PATH /photoprism/assets
+ENV PHOTOPRISM_RESOURCES_PATH /photoprism/assets/resources
+ENV PHOTOPRISM_LOG_FILENAME /photoprism/photoprism.log
+ENV PHOTOPRISM_PID_FILENAME /photoprism/photoprism.pid
+
+# Copy files to /photoprism
+COPY --from=build /root/.local/bin/photoprism /photoprism/bin/photoprism
+COPY --from=build /root/.local/share/photoprism /photoprism/assets
+COPY --from=build /root/.config/photoprism /photoprism/config
 
 # Create directories
-RUN mkdir -p /home/photoprism/.cache/photoprism \
-    /home/photoprism/Pictures/Originals \
-    /home/photoprism/Pictures/Import \
-    /home/photoprism/Pictures/Export
+RUN mkdir -p \
+    /photoprism/originals \
+    /photoprism/import \
+    /photoprism/database \
+    /photoprism/temp \
+    /photoprism/cache
 
-# Fix permissions
-USER root
-RUN chown -R photoprism:photoprism /home/photoprism
-USER photoprism
+RUN chmod -R 777 /photoprism
 
 # Show photoprism version
 RUN photoprism -v
 
 # Expose http and database ports
-EXPOSE 2342 4000
+EXPOSE 2342 2343 4000
 
 # Run server
 CMD photoprism start

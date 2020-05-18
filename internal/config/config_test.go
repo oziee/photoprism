@@ -1,11 +1,27 @@
 package config
 
 import (
+	"os"
+	"strings"
 	"testing"
 
-	"github.com/photoprism/photoprism/internal/file"
+	"github.com/photoprism/photoprism/pkg/fs"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 )
+
+func TestMain(m *testing.M) {
+	log = logrus.StandardLogger()
+	log.SetLevel(logrus.DebugLevel)
+
+	c := TestConfig()
+
+	code := m.Run()
+
+	_ = c.CloseDb()
+
+	os.Exit(code)
+}
 
 func TestNewConfig(t *testing.T) {
 	ctx := CliTestContext()
@@ -17,7 +33,7 @@ func TestNewConfig(t *testing.T) {
 
 	assert.IsType(t, new(Config), c)
 
-	assert.Equal(t, file.ExpandFilename("../../assets"), c.AssetsPath())
+	assert.Equal(t, fs.Abs("../../assets"), c.AssetsPath())
 	assert.False(t, c.Debug())
 	assert.False(t, c.ReadOnly())
 }
@@ -35,7 +51,7 @@ func TestConfig_Version(t *testing.T) {
 	c := NewConfig(ctx)
 
 	version := c.Version()
-	assert.Equal(t, "0.0.0", version)
+	assert.Equal(t, "test", version)
 }
 
 func TestConfig_TensorFlowVersion(t *testing.T) {
@@ -43,7 +59,15 @@ func TestConfig_TensorFlowVersion(t *testing.T) {
 	c := NewConfig(ctx)
 
 	version := c.TensorFlowVersion()
-	assert.Equal(t, "1.14.0", version)
+	assert.IsType(t, "1.15.0", version)
+}
+
+func TestConfig_TensorFlowDisabled(t *testing.T) {
+	ctx := CliTestContext()
+	c := NewConfig(ctx)
+
+	version := c.DisableTensorFlow()
+	assert.Equal(t, false, version)
 }
 
 func TestConfig_Copyright(t *testing.T) {
@@ -94,35 +118,35 @@ func TestConfig_DetachServer(t *testing.T) {
 	assert.Equal(t, false, detachServer)
 }
 
-func TestConfig_SqlServerHost(t *testing.T) {
+func TestConfig_TidbServerHost(t *testing.T) {
 	ctx := CliTestContext()
 	c := NewConfig(ctx)
 
-	host := c.SqlServerHost()
+	host := c.TidbServerHost()
 	assert.Equal(t, "127.0.0.1", host)
 }
 
-func TestConfig_SqlServerPort(t *testing.T) {
+func TestConfig_TidbServerPort(t *testing.T) {
 	ctx := CliTestContext()
 	c := NewConfig(ctx)
 
-	port := c.SqlServerPort()
-	assert.Equal(t, uint(4000), port)
+	port := c.TidbServerPort()
+	assert.Equal(t, uint(2343), port)
 }
 
-func TestConfig_SqlServerPath(t *testing.T) {
+func TestConfig_TidbServerPath(t *testing.T) {
 	ctx := CliTestContext()
 	c := NewConfig(ctx)
 
-	path := c.SqlServerPath()
+	path := c.TidbServerPath()
 	assert.Equal(t, "/go/src/github.com/photoprism/photoprism/assets/resources/database", path)
 }
 
-func TestConfig_SqlServerPassword(t *testing.T) {
+func TestConfig_TidbServerPassword(t *testing.T) {
 	ctx := CliTestContext()
 	c := NewConfig(ctx)
 
-	password := c.SqlServerPassword()
+	password := c.TidbServerPassword()
 	assert.Equal(t, "", password)
 }
 
@@ -162,24 +186,18 @@ func TestConfig_OriginalsPath(t *testing.T) {
 	ctx := CliTestContext()
 	c := NewConfig(ctx)
 
-	path := c.OriginalsPath()
-	assert.Equal(t, "/go/src/github.com/photoprism/photoprism/assets/testdata/originals", path)
+	result := c.OriginalsPath()
+	assert.True(t, strings.HasPrefix(result, "/"))
+	assert.True(t, strings.HasSuffix(result, "assets/testdata/originals"))
 }
 
 func TestConfig_ImportPath(t *testing.T) {
 	ctx := CliTestContext()
 	c := NewConfig(ctx)
 
-	path := c.ImportPath()
-	assert.Equal(t, ".", path)
-}
-
-func TestConfig_ExportPath(t *testing.T) {
-	ctx := CliTestContext()
-	c := NewConfig(ctx)
-
-	path := c.ExportPath()
-	assert.Equal(t, ".", path)
+	result := c.ImportPath()
+	assert.True(t, strings.HasPrefix(result, "/"))
+	assert.True(t, strings.HasSuffix(result, "assets/testdata/import"))
 }
 
 func TestConfig_SipsBin(t *testing.T) {
@@ -219,7 +237,7 @@ func TestConfig_DatabaseDriver(t *testing.T) {
 	c := NewConfig(ctx)
 
 	driver := c.DatabaseDriver()
-	assert.Equal(t, "internal", driver)
+	assert.Equal(t, DriverTidb, driver)
 }
 
 func TestConfig_DatabaseDsn(t *testing.T) {
@@ -227,23 +245,22 @@ func TestConfig_DatabaseDsn(t *testing.T) {
 	c := NewConfig(ctx)
 
 	dsn := c.DatabaseDriver()
-	assert.Equal(t, "internal", dsn)
+	assert.Equal(t, DriverTidb, dsn)
 }
 
 func TestConfig_CachePath(t *testing.T) {
 	ctx := CliTestContext()
 	c := NewConfig(ctx)
 
-	path := c.CachePath()
-	assert.Equal(t, "", path)
+	assert.True(t, strings.HasSuffix(c.CachePath(), "assets/testdata/cache"))
 }
 
 func TestConfig_ThumbnailsPath(t *testing.T) {
 	ctx := CliTestContext()
 	c := NewConfig(ctx)
 
-	path := c.ThumbnailsPath()
-	assert.Equal(t, "/thumbnails", path)
+	assert.True(t, strings.HasPrefix(c.ThumbPath(), "/"))
+	assert.True(t, strings.HasSuffix(c.ThumbPath(), "assets/testdata/cache/thumbnails"))
 }
 
 func TestConfig_AssetsPath(t *testing.T) {
@@ -262,28 +279,28 @@ func TestConfig_ResourcesPath(t *testing.T) {
 	assert.Equal(t, "/go/src/github.com/photoprism/photoprism/assets/resources", path)
 }
 
-func TestConfig_HideNSFW(t *testing.T) {
+func TestConfig_DetectNSFW(t *testing.T) {
 	ctx := CliTestContext()
 	c := NewConfig(ctx)
 
-	hideNSFW := c.HideNSFW()
-	assert.Equal(t, false, hideNSFW)
+	result := c.DetectNSFW()
+	assert.Equal(t, true, result)
 }
 
 func TestConfig_AdminPassword(t *testing.T) {
 	ctx := CliTestContext()
 	c := NewConfig(ctx)
 
-	hideNSFW := c.AdminPassword()
-	assert.Equal(t, "photoprism", hideNSFW)
+	result := c.AdminPassword()
+	assert.Equal(t, "photoprism", result)
 }
 
 func TestConfig_NSFWModelPath(t *testing.T) {
 	ctx := CliTestContext()
 	c := NewConfig(ctx)
 
-	hideNSFW := c.NSFWModelPath()
-	assert.Equal(t, "/go/src/github.com/photoprism/photoprism/assets/resources/nsfw", hideNSFW)
+	result := c.NSFWModelPath()
+	assert.Equal(t, "/go/src/github.com/photoprism/photoprism/assets/resources/nsfw", result)
 }
 
 func TestConfig_ExamplesPath(t *testing.T) {
@@ -334,15 +351,6 @@ func TestConfig_HttpStaticBuildPath(t *testing.T) {
 	assert.Equal(t, "/go/src/github.com/photoprism/photoprism/assets/resources/static/build", path)
 }
 
-func TestConfig_CloseDb(t *testing.T) {
-	c := NewTestConfig()
-
-	assert.NotNil(t, c.Db())
-
-	err := c.CloseDb()
-	assert.Nil(t, err)
-}
-
 func TestConfig_ClientConfig(t *testing.T) {
 	c := TestConfig()
 
@@ -358,11 +366,6 @@ func TestConfig_ClientConfig(t *testing.T) {
 	assert.Contains(t, cc, "thumbnails")
 	assert.Contains(t, cc, "jsHash")
 	assert.Contains(t, cc, "cssHash")
-}
-
-func TestConfig_Shutdown(t *testing.T) {
-	c := NewTestConfig()
-	c.Shutdown()
 }
 
 func TestConfig_Workers(t *testing.T) {

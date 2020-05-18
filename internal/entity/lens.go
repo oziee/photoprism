@@ -5,13 +5,12 @@ import (
 	"time"
 
 	"github.com/gosimple/slug"
-	"github.com/jinzhu/gorm"
 )
 
-// Camera lens (as extracted from UpdateExif metadata)
+// Lens represents camera lens (as extracted from UpdateExif metadata)
 type Lens struct {
 	ID              uint   `gorm:"primary_key"`
-	LensSlug        string `gorm:"type:varbinary(128);unique_index;"`
+	LensSlug        string `gorm:"type:varbinary(255);unique_index;"`
 	LensModel       string
 	LensMake        string
 	LensType        string
@@ -23,19 +22,31 @@ type Lens struct {
 	DeletedAt       *time.Time `sql:"index"`
 }
 
+var UnknownLens = Lens{
+	LensModel: "Unknown",
+	LensMake:  "",
+	LensSlug:  "zz",
+}
+
+// CreateUnknownLens initializes the database with an unknown lens if not exists
+func CreateUnknownLens() {
+	UnknownLens.FirstOrCreate()
+}
+
+// TableName returns Lens table identifier "lens"
 func (Lens) TableName() string {
 	return "lenses"
 }
 
+// NewLens creates a new lens in database
 func NewLens(modelName string, makeName string) *Lens {
 	modelName = strings.TrimSpace(modelName)
 	makeName = strings.TrimSpace(makeName)
+	lensSlug := slug.MakeLang(modelName, "en")
 
 	if modelName == "" {
-		modelName = "Unknown"
+		return &UnknownLens
 	}
-
-	lensSlug := slug.MakeLang(modelName, "en")
 
 	result := &Lens{
 		LensModel: modelName,
@@ -46,10 +57,9 @@ func NewLens(modelName string, makeName string) *Lens {
 	return result
 }
 
-func (m *Lens) FirstOrCreate(db *gorm.DB) *Lens {
-	writeMutex.Lock()
-	defer writeMutex.Unlock()
-	if err := db.FirstOrCreate(m, "lens_slug = ?", m.LensSlug).Error; err != nil {
+// FirstOrCreate checks if the lens already exists in the database
+func (m *Lens) FirstOrCreate() *Lens {
+	if err := Db().FirstOrCreate(m, "lens_slug = ?", m.LensSlug).Error; err != nil {
 		log.Errorf("lens: %s", err)
 	}
 

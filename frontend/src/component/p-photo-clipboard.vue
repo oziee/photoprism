@@ -26,46 +26,49 @@
                         fab
                         dark
                         small
-                        :title="labels.private"
-                        color="deep-purple lighten-2"
-                        @click.stop="batchPrivate()"
+                        :title="labels.share"
+                        color="share"
+                        @click.stop="dialog.share = true"
                         :disabled="selection.length === 0"
-                        v-if="context !== 'hidden'"
-                        class="p-photo-clipboard-private"
+                        v-if="context !== 'archive' && $config.feature('share')"
+                        class="p-photo-clipboard-share"
                 >
-                    <v-icon>vpn_key</v-icon>
+                    <v-icon>share</v-icon>
                 </v-btn>
                 <v-btn
                         fab
                         dark
                         small
-                        :title="labels.story"
-                        color="cyan accent-4"
+                        :title="labels.edit"
+                        color="edit"
                         :disabled="selection.length === 0"
-                        @click.stop="batchStory()"
-                        v-if="context !== 'hidden'"
-                        class="p-photo-clipboard-story"
+                        @click.stop="edit"
+                        v-if="context !== 'archive' && $config.feature('edit')"
+                        class="p-photo-clipboard-edit"
                 >
-                    <v-icon>wifi</v-icon>
+                    <v-icon>edit</v-icon>
                 </v-btn>
-                <!-- v-btn
+                <v-btn
                         fab
                         dark
                         small
-                        color="light-blue accent-4"
-                        @click.stop="openDocs()"
-                        class="p-photo-clipboard-docs"
+                        :title="labels.private"
+                        color="private"
+                        :disabled="selection.length === 0"
+                        @click.stop="batchPrivate"
+                        v-if="context !== 'archive' && config.settings.features.private"
+                        class="p-photo-clipboard-private"
                 >
-                    <v-icon>info</v-icon>
-                </v-btn -->
+                    <v-icon>lock</v-icon>
+                </v-btn>
                 <v-btn
                         fab
                         dark
                         small
                         :title="labels.download"
-                        color="teal accent-4"
+                        color="download"
                         @click.stop="download()"
-                        v-if="context !== 'hidden'"
+                        v-if="context !== 'archive' && $config.feature('download')"
                         class="p-photo-clipboard-download"
                 >
                     <v-icon>cloud_download</v-icon>
@@ -75,10 +78,10 @@
                         dark
                         small
                         :title="labels.addToAlbum"
-                        color="amber accent-4"
+                        color="album"
                         :disabled="selection.length === 0"
                         @click.stop="dialog.album = true"
-                        v-if="context !== 'hidden'"
+                        v-if="context !== 'archive'"
                         class="p-photo-clipboard-album"
                 >
                     <v-icon>folder</v-icon>
@@ -88,28 +91,28 @@
                         fab
                         dark
                         small
-                        color="delete"
-                        :title="labels.delete"
-                        @click.stop="dialog.delete = true"
+                        color="remove"
+                        :title="labels.archive"
+                        @click.stop="dialog.archive = true"
                         :disabled="selection.length === 0"
-                        v-if="!album && context !== 'hidden'"
-                        class="p-photo-clipboard-delete"
+                        v-if="!album && context !== 'archive' && $config.feature('archive')"
+                        class="p-photo-clipboard-archive"
                 >
-                    <v-icon>visibility_off</v-icon>
+                    <v-icon>archive</v-icon>
                 </v-btn>
 
                 <v-btn
                         fab
                         dark
                         small
-                        color="purple lighten-2"
+                        color="restore"
                         :title="labels.restore"
                         @click.stop="batchRestorePhotos"
                         :disabled="selection.length === 0"
-                        v-if="!album && context === 'hidden'"
+                        v-if="!album && context === 'archive'"
                         class="p-photo-clipboard-restore"
                 >
-                    <v-icon>visibility</v-icon>
+                    <v-icon>unarchive</v-icon>
                 </v-btn>
 
                 <v-btn
@@ -117,13 +120,13 @@
                         dark
                         small
                         :title="labels.removeFromAlbum"
-                        color="delete"
+                        color="remove"
                         @click.stop="removeFromAlbum"
                         :disabled="selection.length === 0"
                         v-if="album"
                         class="p-photo-clipboard-delete"
                 >
-                    <v-icon>delete</v-icon>
+                    <v-icon>remove</v-icon>
                 </v-btn>
                 <v-btn
                         fab
@@ -139,15 +142,16 @@
         </v-container>
         <p-photo-album-dialog :show="dialog.album" @cancel="dialog.album = false"
                               @confirm="addToAlbum"></p-photo-album-dialog>
-        <p-photo-delete-dialog :show="dialog.delete" @cancel="dialog.delete = false"
-                               @confirm="batchDeletePhotos"></p-photo-delete-dialog>
-        <p-photo-edit-dialog :show="dialog.edit" @cancel="dialog.edit = false"
-                             @confirm="batchEditPhotos"></p-photo-edit-dialog>
+        <p-photo-archive-dialog :show="dialog.archive" @cancel="dialog.archive = false"
+                                @confirm="batchArchivePhotos"></p-photo-archive-dialog>
+        <p-photo-share-dialog :show="dialog.share" :selection="selection" :album="album" @cancel="dialog.share = false"
+                              @confirm="dialog.share = false"></p-photo-share-dialog>
     </div>
 </template>
 <script>
     import Api from "common/api";
     import Notify from "common/notify";
+    import Event from "pubsub-js";
 
     export default {
         name: 'p-photo-clipboard',
@@ -159,18 +163,20 @@
         },
         data() {
             return {
+                config: this.$config.values,
                 expanded: false,
                 dialog: {
-                    delete: false,
+                    archive: false,
                     album: false,
-                    edit: false,
+                    share: false,
                 },
                 labels: {
-                    private: this.$gettext("Private"),
-                    story: this.$gettext("Story"),
+                    share: this.$gettext("Share"),
+                    private: this.$gettext("Change private flag"),
+                    edit: this.$gettext("Edit"),
                     addToAlbum: this.$gettext("Add to album"),
                     removeFromAlbum: this.$gettext("Remove"),
-                    delete: this.$gettext("Hide"),
+                    archive: this.$gettext("Archive"),
                     restore: this.$gettext("Restore"),
                     download: this.$gettext("Download"),
                 },
@@ -181,31 +187,20 @@
                 this.$clipboard.clear();
                 this.expanded = false;
             },
-            batchPrivate() {
-                Api.post("batch/photos/private", {"photos": this.selection}).then(() => this.onPrivateToggled());
-            },
-            onPrivateToggled() {
-                Notify.success(this.$gettext("Toggled private flag"));
-                this.clearClipboard();
-                this.refresh();
-            },
-            batchStory() {
-                Api.post("batch/photos/story", {"photos": this.selection}).then(() => this.onStoryToggled());
-            },
-            onStoryToggled() {
-                Notify.success(this.$gettext("Toggled story flag"));
-                this.clearClipboard();
-                this.refresh();
-            },
-            batchDeletePhotos() {
-                this.dialog.delete = false;
+            batchArchivePhotos() {
+                this.dialog.archive = false;
 
-                Api.post("batch/photos/delete", {"photos": this.selection}).then(() => this.onDeleted());
+                Api.post("batch/photos/archive", {"photos": this.selection}).then(() => this.onArchived());
             },
-            onDeleted() {
-                Notify.success(this.$gettext("Photos hidden"));
+            onArchived() {
+                Notify.success(this.$gettext("Photos archived"));
                 this.clearClipboard();
-                this.refresh();
+            },
+            batchPrivate() {
+                Api.post("batch/photos/private", {"photos": this.selection}).then(() => this.onPrivateSaved());
+            },
+            onPrivateSaved() {
+                this.clearClipboard();
             },
             batchRestorePhotos() {
                 Api.post("batch/photos/restore", {"photos": this.selection}).then(() => this.onRestored());
@@ -213,11 +208,6 @@
             onRestored() {
                 Notify.success(this.$gettext("Photos restored"));
                 this.clearClipboard();
-                this.refresh();
-            },
-            batchTag() {
-                Notify.warning(this.$gettext("Not implemented yet"));
-                this.expanded = false;
             },
             addToAlbum(albumUUID) {
                 this.dialog.album = false;
@@ -226,10 +216,9 @@
             },
             onAdded() {
                 this.clearClipboard();
-                this.refresh();
             },
             removeFromAlbum() {
-                if(!this.album) {
+                if (!this.album) {
                     this.$notify.error(this.$gettext("remove failed: unknown album"));
                     return
                 }
@@ -242,15 +231,9 @@
             },
             onRemoved() {
                 this.clearClipboard();
-                this.refresh();
-            },
-            batchEditPhotos() {
-                this.dialog.edit = false;
-                Notify.warning(this.$gettext("Not implemented yet"));
-                this.expanded = false;
             },
             download() {
-                if(this.selection.length === 1) {
+                if (this.selection.length === 1) {
                     this.onDownload(`/api/v1/photos/${this.selection[0]}/download`);
                 } else {
                     Api.post("zip", {"photos": this.selection}).then(r => {
@@ -264,8 +247,9 @@
                 Notify.success(this.$gettext("Downloading..."));
                 window.open(path, "_blank");
             },
-            openDocs() {
-                window.open('https://docs.photoprism.org/en/latest/', '_blank');
+            edit() {
+                // Open Edit Dialog
+                Event.publish("dialog.edit", {selection: this.selection, album: this.album, index: 0});
             },
         }
     };

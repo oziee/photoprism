@@ -8,14 +8,15 @@ import (
 
 	_ "github.com/jinzhu/gorm/dialects/mysql"
 	_ "github.com/jinzhu/gorm/dialects/sqlite"
-	"github.com/photoprism/photoprism/internal/file"
+	"github.com/photoprism/photoprism/pkg/fs"
 	"github.com/urfave/cli"
 	"gopkg.in/yaml.v2"
 )
 
+// define database drivers const
 const (
-	DbTiDB  = "internal"
-	DbMySQL = "mysql"
+	DriverTidb  = "tidb"
+	DriverMysql = "mysql"
 )
 
 // Params provides a struct in which application configuration is stored.
@@ -33,54 +34,61 @@ type Params struct {
 	Subtitle           string `yaml:"subtitle" flag:"subtitle"`
 	Description        string `yaml:"description" flag:"description"`
 	Author             string `yaml:"author" flag:"author"`
-	Twitter            string `yaml:"twitter" flag:"twitter"`
 	Version            string
 	Copyright          string
+	Public             bool   `yaml:"public" flag:"public"`
 	Debug              bool   `yaml:"debug" flag:"debug"`
 	ReadOnly           bool   `yaml:"read-only" flag:"read-only"`
-	Public             bool   `yaml:"public" flag:"public"`
 	Experimental       bool   `yaml:"experimental" flag:"experimental"`
 	Workers            int    `yaml:"workers" flag:"workers"`
+	WakeupInterval     int    `yaml:"wakeup-interval" flag:"wakeup-interval"`
 	AdminPassword      string `yaml:"admin-password" flag:"admin-password"`
+	WebDAVPassword     string `yaml:"webdav-password" flag:"webdav-password"`
 	LogLevel           string `yaml:"log-level" flag:"log-level"`
 	ConfigFile         string
 	ConfigPath         string `yaml:"config-path" flag:"config-path"`
-	AssetsPath         string `yaml:"assets-path" flag:"assets-path"`
-	ResourcesPath      string `yaml:"resources-path" flag:"resources-path"`
+	TempPath           string `yaml:"temp-path" flag:"temp-path"`
 	CachePath          string `yaml:"cache-path" flag:"cache-path"`
 	OriginalsPath      string `yaml:"originals-path" flag:"originals-path"`
 	ImportPath         string `yaml:"import-path" flag:"import-path"`
-	ExportPath         string `yaml:"export-path" flag:"export-path"`
-	SqlServerHost      string `yaml:"sql-host" flag:"sql-host"`
-	SqlServerPort      uint   `yaml:"sql-port" flag:"sql-port"`
-	SqlServerPath      string `yaml:"sql-path" flag:"sql-path"`
-	SqlServerPassword  string `yaml:"sql-password" flag:"sql-password"`
+	AssetsPath         string `yaml:"assets-path" flag:"assets-path"`
+	ResourcesPath      string `yaml:"resources-path" flag:"resources-path"`
+	DatabaseDriver     string `yaml:"database-driver" flag:"database-driver"`
+	DatabaseDsn        string `yaml:"database-dsn" flag:"database-dsn"`
+	TidbServerHost     string `yaml:"tidb-host" flag:"tidb-host"`
+	TidbServerPort     uint   `yaml:"tidb-port" flag:"tidb-port"`
+	TidbServerPassword string `yaml:"tidb-password" flag:"tidb-password"`
+	TidbServerPath     string `yaml:"tidb-path" flag:"tidb-path"`
 	HttpServerHost     string `yaml:"http-host" flag:"http-host"`
 	HttpServerPort     int    `yaml:"http-port" flag:"http-port"`
 	HttpServerMode     string `yaml:"http-mode" flag:"http-mode"`
 	HttpServerPassword string `yaml:"http-password" flag:"http-password"`
-	DatabaseDriver     string `yaml:"database-driver" flag:"database-driver"`
-	DatabaseDsn        string `yaml:"database-dsn" flag:"database-dsn"`
 	SipsBin            string `yaml:"sips-bin" flag:"sips-bin"`
 	DarktableBin       string `yaml:"darktable-bin" flag:"darktable-bin"`
-	ExifToolBin        string `yaml:"exiftool-bin" flag:"exiftool-bin"`
 	HeifConvertBin     string `yaml:"heifconvert-bin" flag:"heifconvert-bin"`
+	FFmpegBin          string `yaml:"ffmpeg-bin" flag:"ffmpeg-bin"`
+	ExifToolBin        string `yaml:"exiftool-bin" flag:"exiftool-bin"`
+	SidecarJson        bool   `yaml:"sidecar-json" flag:"sidecar-json"`
 	PIDFilename        string `yaml:"pid-filename" flag:"pid-filename"`
 	LogFilename        string `yaml:"log-filename" flag:"log-filename"`
 	DetachServer       bool   `yaml:"detach-server" flag:"detach-server"`
-	HideNSFW           bool   `yaml:"hide-nsfw" flag:"hide-nsfw"`
+	DetectNSFW         bool   `yaml:"detect-nsfw" flag:"detect-nsfw"`
 	UploadNSFW         bool   `yaml:"upload-nsfw" flag:"upload-nsfw"`
-	DisableTensorFlow  bool   `yaml:"tf-disabled" flag:"tf-disabled"`
 	GeoCodingApi       string `yaml:"geocoding-api" flag:"geocoding-api"`
-	ThumbQuality       int    `yaml:"thumb-quality" flag:"thumb-quality"`
+	JpegQuality        int    `yaml:"jpeg-quality" flag:"jpeg-quality"`
+	ThumbFilter        string `yaml:"thumb-filter" flag:"thumb-filter"`
+	ThumbUncached      bool   `yaml:"thumb-uncached" flag:"thumb-uncached"`
 	ThumbSize          int    `yaml:"thumb-size" flag:"thumb-size"`
+	ThumbLimit         int    `yaml:"thumb-limit" flag:"thumb-limit"`
+	DisableTensorFlow  bool   `yaml:"disable-tf" flag:"disable-tf"`
+	DisableSettings    bool   `yaml:"disable-settings" flag:"disable-settings"`
 }
 
-// NewParams() creates a new configuration entity by using two methods:
+// NewParams creates a new configuration entity by using two methods:
 //
-// 1. SetValuesFromFile: This will initialize values from a yaml config file.
+// 1. Load: This will initialize values from a yaml config file.
 //
-// 2. SetValuesFromCliContext: Which comes after SetValuesFromFile and overrides
+// 2. SetContext: Which comes after Load and overrides
 //    any previous values giving an option two override file configs through the CLI.
 func NewParams(ctx *cli.Context) *Params {
 	c := &Params{}
@@ -88,38 +96,41 @@ func NewParams(ctx *cli.Context) *Params {
 	c.Name = ctx.App.Name
 	c.Copyright = ctx.App.Copyright
 	c.Version = ctx.App.Version
-	c.ConfigFile = file.ExpandFilename(ctx.GlobalString("config-file"))
+	c.ConfigFile = fs.Abs(ctx.GlobalString("config-file"))
 
-	if err := c.SetValuesFromFile(c.ConfigFile); err != nil {
+	if err := c.Load(c.ConfigFile); err != nil {
 		log.Debug(err)
 	}
 
-	if err := c.SetValuesFromCliContext(ctx); err != nil {
+	if err := c.SetContext(ctx); err != nil {
 		log.Error(err)
 	}
-
-	c.expandFilenames()
 
 	return c
 }
 
+// expandFilenames converts path in config to absolute path
 func (c *Params) expandFilenames() {
-	c.ConfigPath = file.ExpandFilename(c.ConfigPath)
-	c.ResourcesPath = file.ExpandFilename(c.ResourcesPath)
-	c.AssetsPath = file.ExpandFilename(c.AssetsPath)
-	c.CachePath = file.ExpandFilename(c.CachePath)
-	c.OriginalsPath = file.ExpandFilename(c.OriginalsPath)
-	c.ImportPath = file.ExpandFilename(c.ImportPath)
-	c.ExportPath = file.ExpandFilename(c.ExportPath)
-	c.SqlServerPath = file.ExpandFilename(c.SqlServerPath)
-	c.PIDFilename = file.ExpandFilename(c.PIDFilename)
-	c.LogFilename = file.ExpandFilename(c.LogFilename)
+	c.ConfigPath = fs.Abs(c.ConfigPath)
+	c.ResourcesPath = fs.Abs(c.ResourcesPath)
+	c.AssetsPath = fs.Abs(c.AssetsPath)
+	c.CachePath = fs.Abs(c.CachePath)
+	c.OriginalsPath = fs.Abs(c.OriginalsPath)
+	c.ImportPath = fs.Abs(c.ImportPath)
+	c.TempPath = fs.Abs(c.TempPath)
+	c.TidbServerPath = fs.Abs(c.TidbServerPath)
+	c.PIDFilename = fs.Abs(c.PIDFilename)
+	c.LogFilename = fs.Abs(c.LogFilename)
 }
 
-// SetValuesFromFile uses a yaml config file to initiate the configuration entity.
-func (c *Params) SetValuesFromFile(fileName string) error {
-	if !file.Exists(fileName) {
-		return errors.New(fmt.Sprintf("config file not found: \"%s\"", fileName))
+// Load uses a yaml config file to initiate the configuration entity.
+func (c *Params) Load(fileName string) error {
+	if fileName == "" {
+		return nil
+	}
+
+	if !fs.FileExists(fileName) {
+		return errors.New(fmt.Sprintf("config: %s not found", fileName))
 	}
 
 	yamlConfig, err := ioutil.ReadFile(fileName)
@@ -131,9 +142,9 @@ func (c *Params) SetValuesFromFile(fileName string) error {
 	return yaml.Unmarshal(yamlConfig, c)
 }
 
-// SetValuesFromCliContext uses values from the CLI to setup configuration overrides
+// SetContext uses values from the CLI to setup configuration overrides
 // for the entity.
-func (c *Params) SetValuesFromCliContext(ctx *cli.Context) error {
+func (c *Params) SetContext(ctx *cli.Context) error {
 	v := reflect.ValueOf(c).Elem()
 
 	// Iterate through all config fields
