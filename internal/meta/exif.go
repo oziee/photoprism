@@ -13,6 +13,7 @@ import (
 	"github.com/dsoprea/go-exif/v2/common"
 	"github.com/dsoprea/go-jpeg-image-structure"
 	"github.com/dsoprea/go-png-image-structure"
+	"github.com/photoprism/photoprism/pkg/fs"
 	"github.com/photoprism/photoprism/pkg/txt"
 	"gopkg.in/ugjka/go-tz.v2/tz"
 )
@@ -22,12 +23,6 @@ const DateTimeZero = "0000:00:00 00:00:00"
 // ValidDateTime returns true if a date string looks valid and is not zero.
 func ValidDateTime(s string) bool {
 	return len(s) == len(DateTimeZero) && s != DateTimeZero
-}
-
-// SanitizeString removes unwanted character from an exif value string.
-func SanitizeString(value string) string {
-	value = strings.TrimSpace(value)
-	return strings.Replace(value, "\"", "", -1)
 }
 
 // Exif parses an image file for Exif meta data and returns as Data struct.
@@ -51,7 +46,7 @@ func (data *Data) Exif(fileName string) (err error) {
 
 	fileExtension := strings.ToLower(path.Ext(fileName))
 
-	if fileExtension == ".jpg" || fileExtension == ".jpeg" {
+	if fileExtension == fs.JpegExt || fileExtension == ".jpeg" {
 		jmp := jpegstructure.NewJpegMediaParser()
 
 		sl, err := jmp.ParseFile(fileName)
@@ -253,24 +248,24 @@ func (data *Data) Exif(fileName string) (err error) {
 	}
 
 	if value, ok := tags["ImageUniqueID"]; ok {
-		data.UniqueID = value
+		data.DocumentID = SanitizeUID(value)
 	}
 
-	if value, ok := tags["ImageWidth"]; ok {
+	if value, ok := tags["PixelXDimension"]; ok {
 		if i, err := strconv.Atoi(value); err == nil {
 			data.Width = i
 		}
-	} else if value, ok := tags["PixelXDimension"]; ok {
+	} else if value, ok := tags["ImageWidth"]; ok {
 		if i, err := strconv.Atoi(value); err == nil {
 			data.Width = i
 		}
 	}
 
-	if value, ok := tags["ImageLength"]; ok {
+	if value, ok := tags["PixelYDimension"]; ok {
 		if i, err := strconv.Atoi(value); err == nil {
 			data.Height = i
 		}
-	} else if value, ok := tags["PixelYDimension"]; ok {
+	} else if value, ok := tags["ImageLength"]; ok {
 		if i, err := strconv.Atoi(value); err == nil {
 			data.Height = i
 		}

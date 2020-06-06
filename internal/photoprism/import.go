@@ -41,6 +41,11 @@ func (imp *Import) originalsPath() string {
 	return imp.conf.OriginalsPath()
 }
 
+// thumbPath returns the thumbnails cache path as string.
+func (imp *Import) thumbPath() string {
+	return imp.conf.ThumbPath()
+}
+
 // Start imports media files from a directory and converts/indexes them as needed.
 func (imp *Import) Start(opt ImportOptions) map[string]bool {
 	var directories []string
@@ -53,12 +58,12 @@ func (imp *Import) Start(opt ImportOptions) map[string]bool {
 		return done
 	}
 
-	if err := mutex.Worker.Start(); err != nil {
+	if err := mutex.MainWorker.Start(); err != nil {
 		event.Error(fmt.Sprintf("import: %s", err.Error()))
 		return done
 	}
 
-	defer mutex.Worker.Stop()
+	defer mutex.MainWorker.Stop()
 
 	if err := ind.tensorFlow.Init(); err != nil {
 		log.Errorf("import: %s", err.Error())
@@ -79,7 +84,7 @@ func (imp *Import) Start(opt ImportOptions) map[string]bool {
 	}
 
 	indexOpt := IndexOptionsAll()
-	ignore := fs.NewIgnoreList(IgnoreFile, true, false)
+	ignore := fs.NewIgnoreList(fs.IgnoreFile, true, false)
 
 	if err := ignore.Dir(importPath); err != nil {
 		log.Infof("import: %s", err)
@@ -97,7 +102,7 @@ func (imp *Import) Start(opt ImportOptions) map[string]bool {
 				}
 			}()
 
-			if mutex.Worker.Canceled() {
+			if mutex.MainWorker.Canceled() {
 				return errors.New("import canceled")
 			}
 
@@ -111,6 +116,14 @@ func (imp *Import) Start(opt ImportOptions) map[string]bool {
 			}
 
 			if skip, result := fs.SkipWalk(fileName, isDir, isSymlink, done, ignore); skip {
+				if isDir && result != filepath.SkipDir {
+					folder := entity.NewFolder(entity.RootImport, fs.RelativeName(fileName, imp.conf.ImportPath()), nil)
+
+					if err := folder.Create(); err == nil {
+						log.Infof("import: added folder /%s", folder.Path)
+					}
+				}
+
 				return result
 			}
 
@@ -207,7 +220,7 @@ func (imp *Import) Start(opt ImportOptions) map[string]bool {
 
 // Cancel stops the current import operation.
 func (imp *Import) Cancel() {
-	mutex.Worker.Cancel()
+	mutex.MainWorker.Cancel()
 }
 
 // DestinationFilename returns the destination filename of a MediaFile to be imported.
@@ -241,7 +254,7 @@ func (imp *Import) DestinationFilename(mainFile *MediaFile, mediaFile *MediaFile
 
 		iteration++
 
-		result = filepath.Join(pathName, fileName+"."+fmt.Sprintf("%04d", iteration)+fileExtension)
+		result = filepath.Join(pathName, fileName+"."+fmt.Sprintf("%05d", iteration)+fileExtension)
 	}
 
 	return result, nil

@@ -12,38 +12,38 @@ import (
 
 func TestNewAlbum(t *testing.T) {
 	t.Run("name Christmas 2018", func(t *testing.T) {
-		album := NewAlbum("Christmas 2018")
-		assert.Equal(t, "Christmas 2018", album.AlbumName)
+		album := NewAlbum("Christmas 2018", TypeAlbum)
+		assert.Equal(t, "Christmas 2018", album.AlbumTitle)
 		assert.Equal(t, "christmas-2018", album.AlbumSlug)
 	})
 	t.Run("name empty", func(t *testing.T) {
-		album := NewAlbum("")
+		album := NewAlbum("", TypeAlbum)
 
 		defaultName := time.Now().Format("January 2006")
 		defaultSlug := slug.Make(defaultName)
 
-		assert.Equal(t, defaultName, album.AlbumName)
+		assert.Equal(t, defaultName, album.AlbumTitle)
 		assert.Equal(t, defaultSlug, album.AlbumSlug)
 	})
 }
 
 func TestAlbum_SetName(t *testing.T) {
 	t.Run("valid name", func(t *testing.T) {
-		album := NewAlbum("initial name")
-		assert.Equal(t, "initial name", album.AlbumName)
+		album := NewAlbum("initial name", TypeAlbum)
+		assert.Equal(t, "initial name", album.AlbumTitle)
 		assert.Equal(t, "initial-name", album.AlbumSlug)
-		album.SetName("New Album Name")
-		assert.Equal(t, "New Album Name", album.AlbumName)
+		album.SetTitle("New Album Name")
+		assert.Equal(t, "New Album Name", album.AlbumTitle)
 		assert.Equal(t, "new-album-name", album.AlbumSlug)
 	})
 	t.Run("empty name", func(t *testing.T) {
-		album := NewAlbum("initial name")
-		assert.Equal(t, "initial name", album.AlbumName)
+		album := NewAlbum("initial name", TypeAlbum)
+		assert.Equal(t, "initial name", album.AlbumTitle)
 		assert.Equal(t, "initial-name", album.AlbumSlug)
 
-		album.SetName("")
+		album.SetTitle("")
 		expected := album.CreatedAt.Format("January 2006")
-		assert.Equal(t, expected, album.AlbumName)
+		assert.Equal(t, expected, album.AlbumTitle)
 		assert.Equal(t, slug.Make(expected), album.AlbumSlug)
 	})
 	t.Run("long name", func(t *testing.T) {
@@ -57,20 +57,20 @@ The discrepancy of 1 second meridian arc length between equator and pole is abou
 is an oblate spheroid.`
 		expected := txt.Clip(longName, txt.ClipDefault)
 		slugExpected := txt.Clip(longName, txt.ClipSlug)
-		album := NewAlbum(longName)
-		assert.Equal(t, expected, album.AlbumName)
+		album := NewAlbum(longName, TypeAlbum)
+		assert.Equal(t, expected, album.AlbumTitle)
 		assert.Contains(t, album.AlbumSlug, slug.Make(slugExpected))
 	})
 }
 
 func TestAlbum_Save(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
-		album := NewAlbum("Old Name")
+		album := NewAlbum("Old Name", TypeAlbum)
 
-		assert.Equal(t, "Old Name", album.AlbumName)
+		assert.Equal(t, "Old Name", album.AlbumTitle)
 		assert.Equal(t, "old-name", album.AlbumSlug)
 
-		album2 := Album{ID: 123, AlbumName: "New name", AlbumDescription: "new description"}
+		album2 := Album{ID: 123, AlbumTitle: "New name", AlbumDescription: "new description"}
 
 		albumForm, err := form.NewAlbum(album2)
 
@@ -78,14 +78,42 @@ func TestAlbum_Save(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		err = album.Save(albumForm)
+		err = album.SaveForm(albumForm)
 
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		assert.Equal(t, "New name", album.AlbumName)
+		assert.Equal(t, "New name", album.AlbumTitle)
 		assert.Equal(t, "new description", album.AlbumDescription)
 	})
 
+}
+
+func TestAddPhotoToAlbums(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		err := AddPhotoToAlbums("pt9jtxrexxvl0yh0", []string{"at6axuzitogaaiax"})
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		a := Album{AlbumUID: "at6axuzitogaaiax"}
+
+		if err := a.Find(); err != nil {
+			t.Fatal(err)
+		}
+
+		var entries []PhotoAlbum
+
+		if err := Db().Where("album_uid = ? AND photo_uid = ?", "at6axuzitogaaiax", "pt9jtxrexxvl0yh0").Find(&entries).Error; err != nil {
+			t.Fatal(err)
+		}
+
+		if len(entries) < 1 {
+			t.Error("at least one album entry expected")
+		}
+
+		// t.Logf("photo album entries: %+v", entries)
+	})
 }

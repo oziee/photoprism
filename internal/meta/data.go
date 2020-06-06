@@ -7,12 +7,13 @@ import (
 
 // Data represents image meta data.
 type Data struct {
-	UniqueID     string        `meta:"ImageUniqueID"`
+	DocumentID   string        `meta:"ImageUniqueID,OriginalDocumentID,DocumentID"`
+	InstanceID   string        `meta:"InstanceID,DocumentID"`
 	TakenAt      time.Time     `meta:"DateTimeOriginal,CreateDate,MediaCreateDate,DateTimeDigitized,DateTime"`
 	TakenAtLocal time.Time     `meta:"DateTimeOriginal,CreateDate,MediaCreateDate,DateTimeDigitized,DateTime"`
 	TimeZone     string        `meta:"-"`
 	Duration     time.Duration `meta:"Duration,MediaDuration,TrackDuration"`
-	Codec        string        `meta:"CompressorID,Compression"`
+	Codec        string        `meta:"CompressorID,Compression,FileType"`
 	Title        string        `meta:"Title"`
 	Subject      string        `meta:"Subject,PersonInImage"`
 	Keywords     string        `meta:"Keywords"`
@@ -38,17 +39,18 @@ type Data struct {
 	Lat          float32       `meta:"-"`
 	Lng          float32       `meta:"-"`
 	Altitude     int           `meta:"GlobalAltitude"`
-	Width        int           `meta:"ImageWidth"`
-	Height       int           `meta:"ImageHeight"`
+	Width        int           `meta:"PixelXDimension,ImageWidth,ExifImageWidth,SourceImageWidth"`
+	Height       int           `meta:"PixelYDimension,ImageHeight,ImageLength,ExifImageHeight,SourceImageHeight"`
 	Orientation  int           `meta:"-"`
 	Rotation     int           `meta:"Rotation"`
+	Error        error         `meta:"-"`
 	All          map[string]string
 }
 
 // AspectRatio returns the aspect ratio based on width and height.
 func (data Data) AspectRatio() float32 {
-	width := float64(data.Width)
-	height := float64(data.Height)
+	width := float64(data.ActualWidth())
+	height := float64(data.ActualHeight())
 
 	if width <= 0 || height <= 0 {
 		return 0
@@ -67,4 +69,37 @@ func (data Data) Portrait() bool {
 // Megapixels returns the resolution in megapixels.
 func (data Data) Megapixels() int {
 	return int(math.Round(float64(data.Width*data.Height) / 1000000))
+}
+
+// HasDocumentID returns true if a DocumentID exists.
+func (data Data) HasDocumentID() bool {
+	return len(data.DocumentID) >= 15
+}
+
+// HasInstanceID returns true if an InstanceID exists.
+func (data Data) HasInstanceID() bool {
+	return len(data.InstanceID) >= 15
+}
+
+// HasTimeAndPlace if data contains a time and gps position.
+func (data Data) HasTimeAndPlace() bool {
+	return !data.TakenAt.IsZero() && data.Lat != 0 && data.Lng != 0
+}
+
+// ActualWidth is the width after rotating the media file if needed.
+func (data Data) ActualWidth() int {
+	if data.Orientation > 4 {
+		return data.Height
+	}
+
+	return data.Width
+}
+
+// ActualHeight is the height after rotating the media file if needed.
+func (data Data) ActualHeight() int {
+	if data.Orientation > 4 {
+		return data.Width
+	}
+
+	return data.Height
 }

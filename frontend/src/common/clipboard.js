@@ -81,7 +81,7 @@ class Clipboard {
             return;
         }
 
-        let rangeStart = models.findIndex((photo) => photo.PhotoUUID === this.lastId);
+        let rangeStart = models.findIndex((photo) => photo.UID === this.lastId);
 
         if(rangeStart === -1) {
             this.toggle(models[rangeEnd]);
@@ -120,8 +120,10 @@ class Clipboard {
             return;
         }
 
-        const id = model.getId();
+        this.removeId(model.getId());
+    }
 
+    removeId(id) {
         if (!this.hasId(id)) return;
 
         const index = this.selection.indexOf(id);

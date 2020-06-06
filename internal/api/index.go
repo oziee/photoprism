@@ -12,27 +12,8 @@ import (
 	"github.com/photoprism/photoprism/internal/form"
 	"github.com/photoprism/photoprism/internal/photoprism"
 	"github.com/photoprism/photoprism/internal/service"
-	"github.com/photoprism/photoprism/pkg/fs"
 	"github.com/photoprism/photoprism/pkg/txt"
 )
-
-// GET /api/v1/index
-func GetIndexingOptions(router *gin.RouterGroup, conf *config.Config) {
-	router.GET("/index", func(c *gin.Context) {
-		if Unauthorized(c, conf) {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, ErrUnauthorized)
-			return
-		}
-
-		dirs, err := fs.Dirs(conf.OriginalsPath(), true)
-
-		if err != nil {
-			log.Errorf("index: %s", err)
-		}
-
-		c.JSON(http.StatusOK, gin.H{"dirs": dirs})
-	})
-}
 
 // POST /api/v1/index
 func StartIndexing(router *gin.RouterGroup, conf *config.Config) {
@@ -83,11 +64,18 @@ func StartIndexing(router *gin.RouterGroup, conf *config.Config) {
 			event.Info(fmt.Sprintf("removed %d files and %d photos", len(files), len(photos)))
 		}
 
+		moments := service.Moments()
+
+		if err := moments.Start(); err != nil {
+			log.Error(err)
+		}
+
 		elapsed := int(time.Since(start).Seconds())
 
 		event.Success(fmt.Sprintf("indexing completed in %d s", elapsed))
 		event.Publish("index.completed", event.Data{"path": path, "seconds": elapsed})
-		event.Publish("config.updated", event.Data(conf.ClientConfig()))
+
+		UpdateClientConfig(conf)
 
 		c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("indexing completed in %d s", elapsed)})
 	})

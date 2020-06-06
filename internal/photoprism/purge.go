@@ -37,12 +37,6 @@ func (prg *Purge) originalsPath() string {
 
 // Start removes missing files from search results.
 func (prg *Purge) Start(opt PurgeOptions) (purgedFiles map[string]bool, purgedPhotos map[string]bool, err error) {
-	defer func() {
-		if err := recover(); err != nil {
-			log.Errorf("purge: %s [panic]", err)
-		}
-	}()
-
 	var ignore map[string]bool
 
 	if opt.Ignore != nil {
@@ -55,15 +49,20 @@ func (prg *Purge) Start(opt PurgeOptions) (purgedFiles map[string]bool, purgedPh
 	purgedPhotos = make(map[string]bool)
 	originalsPath := prg.originalsPath()
 
-	if err := mutex.Worker.Start(); err != nil {
+	if err := mutex.MainWorker.Start(); err != nil {
 		err = fmt.Errorf("purge: %s", err.Error())
 		event.Error(err.Error())
 		return purgedFiles, purgedPhotos, err
 	}
 
 	defer func() {
-		mutex.Worker.Stop()
-		runtime.GC()
+		mutex.MainWorker.Stop()
+
+		if err := recover(); err != nil {
+			log.Errorf("purge: %s [panic]", err)
+		} else {
+			runtime.GC()
+		}
 	}()
 
 	limit := 500
@@ -81,7 +80,7 @@ func (prg *Purge) Start(opt PurgeOptions) (purgedFiles map[string]bool, purgedPh
 		}
 
 		for _, file := range files {
-			if mutex.Worker.Canceled() {
+			if mutex.MainWorker.Canceled() {
 				return purgedFiles, purgedPhotos, errors.New("purge canceled")
 			}
 
@@ -107,7 +106,7 @@ func (prg *Purge) Start(opt PurgeOptions) (purgedFiles map[string]bool, purgedPh
 			}
 		}
 
-		if mutex.Worker.Canceled() {
+		if mutex.MainWorker.Canceled() {
 			return purgedFiles, purgedPhotos, errors.New("purge canceled")
 		}
 
@@ -120,7 +119,7 @@ func (prg *Purge) Start(opt PurgeOptions) (purgedFiles map[string]bool, purgedPh
 	offset = 0
 
 	for {
-		photos, err := query.MissingPhotos(limit, offset)
+		photos, err := query.PhotosMissing(limit, offset)
 
 		if err != nil {
 			return purgedFiles, purgedPhotos, err
@@ -131,16 +130,16 @@ func (prg *Purge) Start(opt PurgeOptions) (purgedFiles map[string]bool, purgedPh
 		}
 
 		for _, photo := range photos {
-			if mutex.Worker.Canceled() {
+			if mutex.MainWorker.Canceled() {
 				return purgedFiles, purgedPhotos, errors.New("purge canceled")
 			}
 
-			if purgedPhotos[photo.PhotoUUID] {
+			if purgedPhotos[photo.PhotoUID] {
 				continue
 			}
 
 			if opt.Dry {
-				purgedPhotos[photo.PhotoUUID] = true
+				purgedPhotos[photo.PhotoUID] = true
 				log.Infof("purge: photo %s would be removed", txt.Quote(photo.PhotoName))
 				continue
 			}
@@ -148,7 +147,7 @@ func (prg *Purge) Start(opt PurgeOptions) (purgedFiles map[string]bool, purgedPh
 			if err := photo.Delete(opt.Hard); err != nil {
 				log.Errorf("purge: %s", err)
 			} else {
-				purgedPhotos[photo.PhotoUUID] = true
+				purgedPhotos[photo.PhotoUID] = true
 
 				if opt.Hard {
 					log.Infof("purge: permanently deleted photo %s", txt.Quote(photo.PhotoName))
@@ -158,7 +157,7 @@ func (prg *Purge) Start(opt PurgeOptions) (purgedFiles map[string]bool, purgedPh
 			}
 		}
 
-		if mutex.Worker.Canceled() {
+		if mutex.MainWorker.Canceled() {
 			return purgedFiles, purgedPhotos, errors.New("purge canceled")
 		}
 
@@ -169,7 +168,7 @@ func (prg *Purge) Start(opt PurgeOptions) (purgedFiles map[string]bool, purgedPh
 
 	log.Info("purge: finding hidden photos")
 
-	if err := query.ResetPhotosQuality(); err != nil {
+	if err := query.ResetPhotoQuality(); err != nil {
 		return purgedFiles, purgedPhotos, err
 	}
 
@@ -180,7 +179,7 @@ func (prg *Purge) Start(opt PurgeOptions) (purgedFiles map[string]bool, purgedPh
 	return purgedFiles, purgedPhotos, nil
 }
 
-// Cancel stops the current purge operation.
+// Cancel stops the current operation.
 func (prg *Purge) Cancel() {
-	mutex.Worker.Cancel()
+	mutex.MainWorker.Cancel()
 }

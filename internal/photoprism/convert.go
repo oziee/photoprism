@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"sync"
 
 	"github.com/karrick/godirwalk"
@@ -32,11 +31,11 @@ func NewConvert(conf *config.Config) *Convert {
 
 // Start converts all files in a directory to JPEG if possible.
 func (c *Convert) Start(path string) error {
-	if err := mutex.Worker.Start(); err != nil {
+	if err := mutex.MainWorker.Start(); err != nil {
 		return err
 	}
 
-	defer mutex.Worker.Stop()
+	defer mutex.MainWorker.Stop()
 
 	jobs := make(chan ConvertJob)
 
@@ -52,7 +51,7 @@ func (c *Convert) Start(path string) error {
 	}
 
 	done := make(map[string]bool)
-	ignore := fs.NewIgnoreList(IgnoreFile, true, false)
+	ignore := fs.NewIgnoreList(fs.IgnoreFile, true, false)
 
 	if err := ignore.Dir(path); err != nil {
 		log.Infof("convert: %s", err)
@@ -70,7 +69,7 @@ func (c *Convert) Start(path string) error {
 				}
 			}()
 
-			if mutex.Worker.Canceled() {
+			if mutex.MainWorker.Canceled() {
 				return errors.New("convert: canceled")
 			}
 
@@ -135,8 +134,8 @@ func (c *Convert) ConvertCommand(mf *MediaFile, jpegName string, xmpName string)
 }
 
 // ToJson uses exiftool to export metadata to a json file.
-func (c *Convert) ToJson(mf *MediaFile) (*MediaFile, error) {
-	jsonName := fs.TypeJson.Find(mf.FileName(), c.conf.Settings().Index.Group)
+func (c *Convert) ToJson(mf *MediaFile, hidden bool) (*MediaFile, error) {
+	jsonName := fs.TypeJson.FindSub(mf.FileName(), fs.HiddenPath, c.conf.Settings().Index.Group)
 
 	result, err := NewMediaFile(jsonName)
 
@@ -144,10 +143,14 @@ func (c *Convert) ToJson(mf *MediaFile) (*MediaFile, error) {
 		return result, nil
 	}
 
-	jsonName = mf.AbsBase(c.conf.Settings().Index.Group) + ".json"
-
 	if c.conf.ReadOnly() {
 		return nil, fmt.Errorf("convert: metadata export to json disabled in read only mode (%s)", mf.RelativeName(c.conf.OriginalsPath()))
+	}
+
+	if hidden {
+		jsonName = mf.HiddenName(".json", c.conf.Settings().Index.Group)
+	} else {
+		jsonName = mf.RelatedName(".json", c.conf.Settings().Index.Group)
 	}
 
 	fileName := mf.RelativeName(c.conf.OriginalsPath())
@@ -185,7 +188,7 @@ func (c *Convert) ToJson(mf *MediaFile) (*MediaFile, error) {
 }
 
 // ToJpeg converts a single image file to JPEG if possible.
-func (c *Convert) ToJpeg(image *MediaFile) (*MediaFile, error) {
+func (c *Convert) ToJpeg(image *MediaFile, hidden bool) (*MediaFile, error) {
 	if c.conf.ReadOnly() {
 		return nil, errors.New("convert: disabled in read-only mode")
 	}
@@ -198,7 +201,7 @@ func (c *Convert) ToJpeg(image *MediaFile) (*MediaFile, error) {
 		return image, nil
 	}
 
-	jpegName := fs.TypeJpeg.Find(image.FileName(), c.conf.Settings().Index.Group)
+	jpegName := fs.TypeJpeg.FindSub(image.FileName(), fs.HiddenPath, c.conf.Settings().Index.Group)
 
 	mediaFile, err := NewMediaFile(jpegName)
 
@@ -206,10 +209,14 @@ func (c *Convert) ToJpeg(image *MediaFile) (*MediaFile, error) {
 		return mediaFile, nil
 	}
 
-	jpegName = image.AbsBase(c.conf.Settings().Index.Group) + ".jpg"
-
 	if c.conf.ReadOnly() {
 		return nil, fmt.Errorf("convert: disabled in read only mode (%s)", image.RelativeName(c.conf.OriginalsPath()))
+	}
+
+	if hidden {
+		jpegName = image.HiddenName(fs.JpegExt, c.conf.Settings().Index.Group)
+	} else {
+		jpegName = image.RelatedName(fs.JpegExt, c.conf.Settings().Index.Group)
 	}
 
 	fileName := image.RelativeName(c.conf.OriginalsPath())
@@ -240,10 +247,6 @@ func (c *Convert) ToJpeg(image *MediaFile) (*MediaFile, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	// Unclear if this is really necessary here, but safe is safe.
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
 
 	if useMutex {
 		// Make sure only one command is executed at a time.

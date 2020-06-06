@@ -110,10 +110,10 @@
                 this.clearSelection();
                 this.expanded = false;
             },
-            addToAlbum(albumUUID) {
+            addToAlbum(ppid) {
                 this.dialog.album = false;
 
-                Api.post(`albums/${albumUUID}/photos`, {"labels": this.selection}).then(() => this.onAdded());
+                Api.post(`albums/${ppid}/photos`, {"labels": this.selection}).then(() => this.onAdded());
             },
             onAdded() {
                 this.clearClipboard();
@@ -133,13 +133,16 @@
                     return;
                 }
 
-                this.onDownload(`/api/v1/labels/${this.selection[0]}/download`);
+                this.onDownload(`/api/v1/labels/${this.selection[0]}/dl?t=${this.$config.downloadToken()}`);
 
                 this.expanded = false;
             },
             onDownload(path) {
                 Notify.success(this.$gettext("Downloading..."));
-                window.open(path, "_blank");
+                const link = document.createElement('a')
+                link.href = path;
+                link.download = "label.zip";
+                link.click();
             },
         }
     };

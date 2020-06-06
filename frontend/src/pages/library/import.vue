@@ -4,15 +4,16 @@
             <v-container fluid>
                 <p class="subheading">
                     <span v-if="fileName">{{ $gettext('Importing') }} {{fileName}}...</span>
-                    <span v-else-if="busy">{{ $gettext('Importing files from import folder...') }}</span>
+                    <span v-else-if="busy">{{ $gettext('Importing files to originals...') }}</span>
                     <span v-else-if="completed">{{ $gettext('Done.') }}</span>
-                    <span v-else>{{ $gettext('Press button to start importing...') }}</span>
+                    <span v-else-if="settings.import.move">{{ $gettext('Press button to start moving...') }}</span>
+                    <span v-else>{{ $gettext('Press button to start copying...') }}</span>
                 </p>
 
                 <v-autocomplete
                         @change="onChange"
                         color="secondary-dark"
-                        class="my-3"
+                        class="my-3 input-import-folder"
                         hide-details hide-no-data flat solo
                         v-model="settings.import.path"
                         browser-autocomplete="off"
@@ -58,7 +59,7 @@
                 <v-btn
                         :disabled="!busy"
                         color="secondary-dark"
-                        class="white--text ml-0"
+                        class="white--text ml-0 action-cancel"
                         depressed
                         @click.stop="cancelImport()"
                 >
@@ -68,7 +69,7 @@
                 <v-btn v-if="!$config.values.readonly && $config.feature('upload')"
                        :disabled="busy"
                        color="secondary-dark"
-                       class="white--text ml-0 hidden-xs-only"
+                       class="white--text ml-0 hidden-xs-only action-upload"
                        depressed
                        @click.stop="showUpload()"
                 >
@@ -79,7 +80,7 @@
                 <v-btn
                         :disabled="busy"
                         color="secondary-dark"
-                        class="white--text ml-0 mt-2"
+                        class="white--text ml-0 mt-2 action-import"
                         depressed
                         @click.stop="startImport()"
                 >
@@ -98,11 +99,12 @@
     import Event from "pubsub-js";
     import Settings from "model/settings";
     import Util from "../../common/util";
+    import {Folder, RootImport} from "model/folder";
 
     export default {
         name: 'p-tab-import',
         data() {
-            const root = {"name": "All files in import folder", "path": "/"}
+            const root = {"path": "/", "name": this.$gettext("All files from import folder")}
 
             return {
                 settings: new Settings(this.$config.settings()),
@@ -195,22 +197,23 @@
         created() {
             this.subscriptionId = Event.subscribe('import', this.handleEvent);
             this.loading = true;
-            Api.get('import').then((r) => {
-                const subDirs = r.data.dirs ? r.data.dirs : [];
+
+            Folder.findAllUncached(RootImport).then((r) => {
+                const folders = r.models ? r.models : [];
                 const currentPath = this.settings.import.path;
                 let found = currentPath === this.root.path;
 
                 this.dirs = [this.root];
 
-                for (let i = 0; i < subDirs.length; i++) {
-                    if(currentPath === subDirs[i]) {
+                for (let i = 0; i < folders.length; i++) {
+                    if (currentPath === folders[i].Path) {
                         found = true;
                     }
 
-                    this.dirs.push({name: Util.truncate(subDirs[i], 100, "..."), path: subDirs[i]});
+                    this.dirs.push({path: folders[i].Path, name: "/" + Util.truncate(folders[i].Path, 100, "...")});
                 }
 
-                if(!found) {
+                if (!found) {
                     this.settings.import.path = this.root.path;
                 }
             }).finally(() => this.loading = false);

@@ -41,7 +41,7 @@ func BatchPhotosArchive(router *gin.RouterGroup, conf *config.Config) {
 
 		log.Infof("photos: archiving %#v", f.Photos)
 
-		err := entity.Db().Where("photo_uuid IN (?)", f.Photos).Delete(&entity.Photo{}).Error
+		err := entity.Db().Where("photo_uid IN (?)", f.Photos).Delete(&entity.Photo{}).Error
 
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, ErrSaveFailed)
@@ -54,7 +54,7 @@ func BatchPhotosArchive(router *gin.RouterGroup, conf *config.Config) {
 
 		elapsed := int(time.Since(start).Seconds())
 
-		event.Publish("config.updated", event.Data(conf.ClientConfig()))
+		UpdateClientConfig(conf)
 
 		event.EntitiesArchived("photos", f.Photos)
 
@@ -87,7 +87,7 @@ func BatchPhotosRestore(router *gin.RouterGroup, conf *config.Config) {
 
 		log.Infof("restoring photos: %#v", f.Photos)
 
-		err := entity.Db().Unscoped().Model(&entity.Photo{}).Where("photo_uuid IN (?)", f.Photos).
+		err := entity.Db().Unscoped().Model(&entity.Photo{}).Where("photo_uid IN (?)", f.Photos).
 			UpdateColumn("deleted_at", gorm.Expr("NULL")).Error
 
 		if err != nil {
@@ -101,7 +101,7 @@ func BatchPhotosRestore(router *gin.RouterGroup, conf *config.Config) {
 
 		elapsed := int(time.Since(start).Seconds())
 
-		event.Publish("config.updated", event.Data(conf.ClientConfig()))
+		UpdateClientConfig(conf)
 
 		event.EntitiesRestored("photos", f.Photos)
 
@@ -132,10 +132,10 @@ func BatchAlbumsDelete(router *gin.RouterGroup, conf *config.Config) {
 
 		log.Infof("albums: deleting %#v", f.Albums)
 
-		entity.Db().Where("album_uuid IN (?)", f.Albums).Delete(&entity.Album{})
-		entity.Db().Where("album_uuid IN (?)", f.Albums).Delete(&entity.PhotoAlbum{})
+		entity.Db().Where("album_uid IN (?)", f.Albums).Delete(&entity.Album{})
+		entity.Db().Where("album_uid IN (?)", f.Albums).Delete(&entity.PhotoAlbum{})
 
-		event.Publish("config.updated", event.Data(conf.ClientConfig()))
+		UpdateClientConfig(conf)
 
 		event.EntitiesDeleted("albums", f.Albums)
 
@@ -168,7 +168,8 @@ func BatchPhotosPrivate(router *gin.RouterGroup, conf *config.Config) {
 
 		log.Infof("marking photos as private: %#v", f.Photos)
 
-		err := entity.Db().Model(entity.Photo{}).Where("photo_uuid IN (?)", f.Photos).UpdateColumn("photo_private", gorm.Expr("IF (`photo_private`, 0, 1)")).Error
+		err := entity.Db().Model(entity.Photo{}).Where("photo_uid IN (?)", f.Photos).UpdateColumn("photo_private",
+			gorm.Expr("CASE WHEN photo_private > 0 THEN 0 ELSE 1 END")).Error
 
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, ErrSaveFailed)
@@ -183,7 +184,7 @@ func BatchPhotosPrivate(router *gin.RouterGroup, conf *config.Config) {
 			event.EntitiesUpdated("photos", entities)
 		}
 
-		event.Publish("config.updated", event.Data(conf.ClientConfig()))
+		UpdateClientConfig(conf)
 
 		elapsed := time.Since(start)
 
@@ -214,9 +215,19 @@ func BatchLabelsDelete(router *gin.RouterGroup, conf *config.Config) {
 
 		log.Infof("labels: deleting %#v", f.Labels)
 
-		entity.Db().Where("label_uuid IN (?)", f.Labels).Delete(&entity.Label{})
+		var labels entity.Labels
 
-		event.Publish("config.updated", event.Data(conf.ClientConfig()))
+		if err := entity.Db().Where("label_uid IN (?)", f.Labels).Find(&labels).Error; err != nil {
+			logError("labels", err)
+			c.AbortWithStatusJSON(http.StatusInternalServerError, ErrDeleteFailed)
+			return
+		}
+
+		for _, label := range labels {
+			logError("labels", label.Delete())
+		}
+
+		UpdateClientConfig(conf)
 
 		event.EntitiesDeleted("labels", f.Labels)
 

@@ -1,56 +1,57 @@
 import RestModel from "model/rest";
 import Api from "common/api";
 import {DateTime} from "luxon";
+import {config} from "../session";
 
-class Label extends RestModel {
+export class Label extends RestModel {
     getDefaults() {
         return {
             ID: 0,
+            UID: "",
+            Slug: "",
+            CustomSlug: "",
+            Name: "",
+            Priority: 0,
+            Favorite: false,
+            Description: "",
+            Notes: "",
+            PhotoCount: 0,
+            Links: [],
             CreatedAt: "",
             UpdatedAt: "",
             DeletedAt: "",
-            LabelUUID: "",
-            LabelSlug: "",
-            CustomSlug: "",
-            LabelName: "",
-            LabelPriority: 0,
-            LabelFavorite: false,
-            LabelDescription: "",
-            LabelNotes: "",
-            PhotoCount: 0,
-            Links: [],
         };
     }
 
     getEntityName() {
-        return this.LabelSlug;
+        return this.Slug;
     }
 
     getId() {
-        return this.LabelUUID;
+        return this.UID;
     }
 
     getTitle() {
-        return this.LabelName;
+        return this.Name;
     }
 
-    getThumbnailUrl(type) {
-        return "/api/v1/labels/" + this.getId() + "/thumbnail/" + type;
+    thumbnailUrl(type) {
+        return `/api/v1/labels/${this.getId()}/t/${config.previewToken()}/${type}`;
     }
 
-    getThumbnailSrcset() {
+    thumbnailSrcset() {
         const result = [];
 
-        result.push(this.getThumbnailUrl("fit_720") + " 720w");
-        result.push(this.getThumbnailUrl("fit_1280") + " 1280w");
-        result.push(this.getThumbnailUrl("fit_1920") + " 1920w");
-        result.push(this.getThumbnailUrl("fit_2560") + " 2560w");
-        result.push(this.getThumbnailUrl("fit_3840") + " 3840w");
+        result.push(this.thumbnailUrl("fit_720") + " 720w");
+        result.push(this.thumbnailUrl("fit_1280") + " 1280w");
+        result.push(this.thumbnailUrl("fit_1920") + " 1920w");
+        result.push(this.thumbnailUrl("fit_2560") + " 2560w");
+        result.push(this.thumbnailUrl("fit_3840") + " 3840w");
 
         return result.join(", ");
     }
 
-    getThumbnailSizes() {
+    thumbnailSizes() {
         const result = [];
 
         result.push("(min-width: 2560px) 3840px");
@@ -67,9 +68,9 @@ class Label extends RestModel {
     }
 
     toggleLike() {
-        this.LabelFavorite = !this.LabelFavorite;
+        this.Favorite = !this.Favorite;
 
-        if (this.LabelFavorite) {
+        if (this.Favorite) {
             return Api.post(this.getEntityResource() + "/like");
         } else {
             return Api.delete(this.getEntityResource() + "/like");
@@ -77,26 +78,14 @@ class Label extends RestModel {
     }
 
     like() {
-        this.LabelFavorite = true;
+        this.Favorite = true;
         return Api.post(this.getEntityResource() + "/like");
     }
 
     unlike() {
-        this.LabelFavorite = false;
+        this.Favorite = false;
         return Api.delete(this.getEntityResource() + "/like");
     }
-
-    /* popularity(max) {
-        if (!this.PhotoCount) {
-            return 0;
-        }
-
-        if (this.PhotoCount >= max) {
-            return 100;
-        }
-
-        return Math.ceil(max / this.PhotoCount);
-    } */
 
     static getCollectionResource() {
         return "labels";

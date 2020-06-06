@@ -5,6 +5,7 @@ import (
 	"path"
 	"path/filepath"
 
+	"github.com/photoprism/photoprism/internal/entity"
 	"github.com/photoprism/photoprism/internal/event"
 	"github.com/photoprism/photoprism/pkg/fs"
 	"github.com/photoprism/photoprism/pkg/txt"
@@ -80,30 +81,33 @@ func ImportWorker(jobs <-chan ImportJob) {
 			f, err := NewMediaFile(destinationMainFilename)
 
 			if err != nil {
-				log.Errorf("import: could not index %s (%s)", txt.Quote(fs.RelativeName(destinationMainFilename, imp.originalsPath())), err.Error())
-
+				log.Errorf("import: could not import %s (%s)", txt.Quote(fs.RelativeName(destinationMainFilename, imp.originalsPath())), err.Error())
 				continue
 			}
 
 			if !f.HasJpeg() {
-				if _, err := imp.convert.ToJpeg(f); err != nil {
+				if jpegFile, err := imp.convert.ToJpeg(f, imp.conf.JpegHidden()); err != nil {
 					log.Errorf("import: creating jpeg failed (%s)", err.Error())
+					continue
+				} else {
+					log.Infof("import: %s created", fs.RelativeName(jpegFile.FileName(), imp.originalsPath()))
 				}
 			}
 
 			if jpg, err := f.Jpeg(); err != nil {
 				log.Error(err)
 			} else {
-				if err := jpg.ResampleDefault(imp.conf.ThumbPath(), false); err != nil {
+				if err := jpg.ResampleDefault(imp.thumbPath(), false); err != nil {
 					log.Errorf("import: could not create default thumbnails (%s)", err.Error())
+					continue
 				}
 			}
 
 			if imp.conf.SidecarJson() && !f.HasJson() {
-				if jsonFile, err := imp.convert.ToJson(f); err != nil {
+				if jsonFile, err := imp.convert.ToJson(f, imp.conf.SidecarHidden()); err != nil {
 					log.Errorf("import: creating json sidecar file failed (%s)", err.Error())
 				} else {
-					related.Files = append(related.Files, jsonFile)
+					log.Infof("import: %s created", fs.RelativeName(jsonFile.FileName(), imp.originalsPath()))
 				}
 			}
 
@@ -119,9 +123,24 @@ func ImportWorker(jobs <-chan ImportJob) {
 			ind := imp.index
 
 			if related.Main != nil {
+				// Enforce file size limit for originals.
+				if ind.conf.OriginalsLimit() > 0 && related.Main.FileSize() > ind.conf.OriginalsLimit() {
+					log.Warnf("import: %s exceeds file size limit for originals [%d / %d MB]", filepath.Base(related.Main.FileName()), related.Main.FileSize()/(1024*1024), ind.conf.OriginalsLimit()/(1024*1024))
+					continue
+				}
+
 				res := ind.MediaFile(related.Main, indexOpt, originalName)
+
 				log.Infof("import: %s main %s file %s", res, related.Main.FileType(), txt.Quote(related.Main.RelativeName(ind.originalsPath())))
 				done[related.Main.FileName()] = true
+
+				if res.Success() {
+					if err := entity.AddPhotoToAlbums(res.PhotoUID, opt.Albums); err != nil {
+						log.Warn(err)
+					}
+				} else {
+					continue
+				}
 			} else {
 				log.Warnf("import: no main file for %s (conversion to jpeg failed?)", fs.RelativeName(destinationMainFilename, imp.originalsPath()))
 			}
@@ -140,6 +159,7 @@ func ImportWorker(jobs <-chan ImportJob) {
 
 				log.Infof("import: %s related %s file %s", res, f.FileType(), txt.Quote(f.RelativeName(ind.originalsPath())))
 			}
+
 		}
 	}
 }

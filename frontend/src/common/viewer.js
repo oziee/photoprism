@@ -1,8 +1,9 @@
 import PhotoSwipe from "photoswipe";
 import PhotoSwipeUI_Default from "photoswipe/dist/photoswipe-ui-default.js";
 import Event from "pubsub-js";
+import stripHtml from "string-strip-html";
 
-const thumbs = window.clientConfig.thumbnails;
+const thumbs = window.__CONFIG__.thumbnails;
 
 class Viewer {
     constructor() {
@@ -53,21 +54,32 @@ class Viewer {
             counterEl: false,
             arrowEl: true,
             preloaderEl: true,
-            getImageURLForShare: function (button) {
-                const item = gallery.currItem;
+            addCaptionHTMLFn: function(item, captionEl /*, isFake */) {
+                // item      - slide object
+                // captionEl - caption DOM element
+                // isFake    - true when content is added to fake caption container
+                //             (used to get size of next or previous caption)
 
-                if (!item.original_w) {
-                    button.label = button.template.replace("size", "not available");
-                    return item.download_url;
+                if(!item.title) {
+                    captionEl.children[0].innerHTML = "";
+                    return false;
                 }
 
-                if(button.id === "original") {
-                    button.label = button.template.replace("size", item.original_w + " × " + item.original_h);
-                    return item.download_url;
-                } else {
-                    button.label = button.template.replace("size", item[button.id].w + " × " + item[button.id].h);
-                    return item[button.id].src + "?download=1";
+                captionEl.children[0].innerHTML = stripHtml(item.title);
+
+                if(item.playable) {
+                    captionEl.children[0].innerHTML += " <i aria-hidden=\"true\" class=\"v-icon material-icons theme--dark\">movie_creation</i>";
                 }
+
+                if(item.description) {
+                    captionEl.children[0].innerHTML += "<br><span class=\"description\">" + stripHtml(item.description) + "</span>";
+                }
+
+                if(item.playable) {
+                    captionEl.children[0].innerHTML = "<button>" + captionEl.children[0].innerHTML + "</button>";
+                }
+
+                return true;
             },
         };
 
@@ -81,9 +93,12 @@ class Viewer {
 
         this.gallery = gallery;
 
-        gallery.listen("beforeChange", function() {
-            Event.publish("viewer.change", {gallery: gallery, item: gallery.currItem});
-        });
+        gallery.listen("close", () => Event.publish("viewer.pause"));
+        gallery.listen("shareLinkClick", () => Event.publish("viewer.pause"));
+        gallery.listen("initialZoomIn", () => Event.publish("viewer.pause"));
+        gallery.listen("initialZoomOut", () => Event.publish("viewer.pause"));
+
+        gallery.listen("beforeChange", () => Event.publish("viewer.change", {gallery: gallery, item: gallery.currItem}));
 
         gallery.listen("beforeResize", () => {
             realViewportWidth = gallery.viewportSize.x * window.devicePixelRatio;

@@ -7,51 +7,56 @@ import (
 
 	"github.com/gosimple/slug"
 	"github.com/jinzhu/gorm"
+	"github.com/photoprism/photoprism/pkg/fs"
 	"github.com/photoprism/photoprism/pkg/rnd"
 	"github.com/ulule/deepcopier"
 )
 
-// File represents an image or sidecar file that belongs to a photo
+type Files []File
+
+// File represents an image or sidecar file that belongs to a photo.
 type File struct {
-	ID              uint `gorm:"primary_key"`
-	Photo           *Photo
-	PhotoID         uint   `gorm:"index;"`
-	PhotoUUID       string `gorm:"type:varbinary(36);index;"`
-	FileUUID        string `gorm:"type:varbinary(36);unique_index;"`
-	FileName        string `gorm:"type:varbinary(768);unique_index"`
-	OriginalName    string `gorm:"type:varbinary(768);"`
-	FileHash        string `gorm:"type:varbinary(128);index"`
-	FileModified    time.Time
-	FileSize        int64
-	FileCodec       string `gorm:"type:varbinary(32)"`
-	FileType        string `gorm:"type:varbinary(32)"`
-	FileMime        string `gorm:"type:varbinary(64)"`
-	FilePrimary     bool
-	FileSidecar     bool
-	FileMissing     bool
-	FileDuplicate   bool
-	FilePortrait    bool
-	FileVideo       bool
-	FileDuration    time.Duration
-	FileWidth       int
-	FileHeight      int
-	FileOrientation int
-	FileAspectRatio float32 `gorm:"type:FLOAT;"`
-	FileMainColor   string  `gorm:"type:varbinary(16);index;"`
-	FileColors      string  `gorm:"type:varbinary(9);"`
-	FileLuminance   string  `gorm:"type:varbinary(9);"`
-	FileDiff        uint32
-	FileChroma      uint8
-	FileNotes       string `gorm:"type:text"`
-	FileError       string `gorm:"type:varbinary(512)"`
-	Share           []FileShare
-	Sync            []FileSync
-	Links           []Link `gorm:"foreignkey:ShareUUID;association_foreignkey:FileUUID"`
-	CreatedAt       time.Time
-	CreatedIn       int64
-	UpdatedAt       time.Time
-	UpdatedIn       int64
-	DeletedAt       *time.Time `sql:"index"`
+	ID              uint          `gorm:"primary_key" json:"-" yaml:"-"`
+	UUID            string        `gorm:"type:varbinary(36);index;" json:"InstanceID,omitempty" yaml:"InstanceID,omitempty"`
+	Photo           *Photo        `json:"-" yaml:"-"`
+	PhotoID         uint          `gorm:"index;" json:"-" yaml:"-"`
+	PhotoUID        string        `gorm:"type:varbinary(36);index;" json:"PhotoUID" yaml:"PhotoUID"`
+	FileUID         string        `gorm:"type:varbinary(36);unique_index;" json:"UID" yaml:"UID"`
+	FileName        string        `gorm:"type:varbinary(768);unique_index:idx_files_name_root;" json:"Name" yaml:"Name"`
+	FileRoot        string        `gorm:"type:varbinary(16);default:'';unique_index:idx_files_name_root;" json:"Root" yaml:"Root,omitempty"`
+	OriginalName    string        `gorm:"type:varbinary(768);" json:"OriginalName" yaml:"OriginalName,omitempty"`
+	FileHash        string        `gorm:"type:varbinary(128);index" json:"Hash" yaml:"Hash,omitempty"`
+	FileModified    time.Time     `json:"Modified" yaml:"Modified,omitempty"`
+	FileSize        int64         `json:"Size" yaml:"Size,omitempty"`
+	FileCodec       string        `gorm:"type:varbinary(32)" json:"Codec" yaml:"Codec,omitempty"`
+	FileType        string        `gorm:"type:varbinary(32)" json:"Type" yaml:"Type,omitempty"`
+	FileMime        string        `gorm:"type:varbinary(64)" json:"Mime" yaml:"Mime,omitempty"`
+	FilePrimary     bool          `json:"Primary" yaml:"Primary,omitempty"`
+	FileSidecar     bool          `json:"Sidecar" yaml:"Sidecar,omitempty"`
+	FileMissing     bool          `json:"Missing" yaml:"Missing,omitempty"`
+	FileDuplicate   bool          `json:"Duplicate" yaml:"Duplicate,omitempty"`
+	FilePortrait    bool          `json:"Portrait" yaml:"Portrait,omitempty"`
+	FileVideo       bool          `json:"Video" yaml:"Video,omitempty"`
+	FileDuration    time.Duration `json:"Duration" yaml:"Duration,omitempty"`
+	FileWidth       int           `json:"Width" yaml:"Width,omitempty"`
+	FileHeight      int           `json:"Height" yaml:"Height,omitempty"`
+	FileOrientation int           `json:"Orientation" yaml:"Orientation,omitempty"`
+	FileAspectRatio float32       `gorm:"type:FLOAT;" json:"AspectRatio" yaml:"AspectRatio,omitempty"`
+	FileMainColor   string        `gorm:"type:varbinary(16);index;" json:"MainColor" yaml:"MainColor,omitempty"`
+	FileColors      string        `gorm:"type:varbinary(9);" json:"Colors" yaml:"Colors,omitempty"`
+	FileLuminance   string        `gorm:"type:varbinary(9);" json:"Luminance" yaml:"Luminance,omitempty"`
+	FileDiff        uint32        `json:"Diff" yaml:"Diff,omitempty"`
+	FileChroma      uint8         `json:"Chroma" yaml:"Chroma,omitempty"`
+	FileNotes       string        `gorm:"type:text" json:"Notes" yaml:"Notes,omitempty"`
+	FileError       string        `gorm:"type:varbinary(512)" json:"Error" yaml:"Error,omitempty"`
+	Share           []FileShare   `json:"-" yaml:"-"`
+	Sync            []FileSync    `json:"-" yaml:"-"`
+	Links           []Link        `gorm:"foreignkey:share_uid;association_foreignkey:file_uid" json:"Links" yaml:"-"`
+	CreatedAt       time.Time     `json:"CreatedAt" yaml:"-"`
+	CreatedIn       int64         `json:"CreatedIn" yaml:"-"`
+	UpdatedAt       time.Time     `json:"UpdatedAt" yaml:"-"`
+	UpdatedIn       int64         `json:"UpdatedIn" yaml:"-"`
+	DeletedAt       *time.Time    `sql:"index" json:"DeletedAt,omitempty" yaml:"-"`
 }
 
 type FileInfos struct {
@@ -75,30 +80,29 @@ func FirstFileByHash(fileHash string) (File, error) {
 	return file, q.Error
 }
 
-// BeforeCreate computes a random UUID when a new file is created in database
+// BeforeCreate creates a random UID if needed before inserting a new row to the database.
 func (m *File) BeforeCreate(scope *gorm.Scope) error {
-	if rnd.IsPPID(m.FileUUID, 'f') {
+	if rnd.IsUID(m.FileUID, 'f') {
 		return nil
 	}
 
-	return scope.SetColumn("FileUUID", rnd.PPID('f'))
+	return scope.SetColumn("FileUID", rnd.PPID('f'))
 }
 
 // ShareFileName returns a meaningful file name useful for sharing.
 func (m *File) ShareFileName() string {
-	if m.Photo == nil {
+	photo := m.RelatedPhoto()
+
+	if photo == nil {
+		return fmt.Sprintf("%s.%s", m.FileHash, m.FileType)
+	} else if len(m.FileHash) < 8 {
+		return fmt.Sprintf("%s.%s", rnd.UUID(), m.FileType)
+	} else if photo.TakenAtLocal.IsZero() || photo.PhotoTitle == "" {
 		return fmt.Sprintf("%s.%s", m.FileHash, m.FileType)
 	}
 
-	var name string
-
-	if m.Photo.PhotoTitle != "" {
-		name = strings.Title(slug.MakeLang(m.Photo.PhotoTitle, "en"))
-	} else {
-		name = m.PhotoUUID
-	}
-
-	taken := m.Photo.TakenAtLocal.Format("20060102-150405")
+	name := strings.Title(slug.MakeLang(photo.PhotoTitle, "en"))
+	taken := photo.TakenAtLocal.Format("20060102-150405")
 	token := rnd.Token(3)
 
 	result := fmt.Sprintf("%s-%s-%s.%s", taken, name, token, m.FileType)
@@ -133,21 +137,27 @@ func (m *File) AllFilesMissing() bool {
 	count := 0
 
 	if err := Db().Model(&File{}).
-		Where("photo_id = ? AND b.file_missing = 0", m.PhotoID).
+		Where("photo_id = ? AND file_missing = 0", m.PhotoID).
 		Count(&count).Error; err != nil {
-		log.Error(err)
+		log.Errorf("file: %s", err.Error())
 	}
 
 	return count == 0
 }
 
-// Save stored the file in the database using the default connection.
+// Saves the file in the database.
 func (m *File) Save() error {
+	if m.PhotoID == 0 {
+		return fmt.Errorf("file: photo id is empty (%s)", m.FileUID)
+	}
+
 	if err := Db().Save(m).Error; err != nil {
 		return err
 	}
 
-	return Db().Model(m).Related(Photo{}).Error
+	photo := Photo{}
+
+	return Db().Model(m).Related(&photo).Error
 }
 
 // UpdateVideoInfos updates related video infos based on this file.
@@ -159,4 +169,27 @@ func (m *File) UpdateVideoInfos() error {
 	}
 
 	return Db().Model(File{}).Where("photo_id = ? AND file_video = 1", m.PhotoID).Updates(values).Error
+}
+
+// Updates a column in the database.
+func (m *File) Update(attr string, value interface{}) error {
+	return UnscopedDb().Model(m).UpdateColumn(attr, value).Error
+}
+
+// RelatedPhoto returns the related photo entity.
+func (m *File) RelatedPhoto() *Photo {
+	if m.Photo != nil {
+		return m.Photo
+	}
+
+	photo := Photo{}
+
+	UnscopedDb().Model(m).Related(&photo)
+
+	return &photo
+}
+
+// NoJPEG returns true if the file is not a JPEG image file.
+func (m *File) NoJPEG() bool {
+	return m.FileType != string(fs.TypeJpeg)
 }

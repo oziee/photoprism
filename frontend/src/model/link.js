@@ -1,12 +1,12 @@
 import RestModel from "model/rest";
 
-class Link extends RestModel {
+export class Link extends RestModel {
     getDefaults() {
         return {
-            LinkToken: "",
-            LinkPassword: "",
-            LinkExpires: "",
-            ShareUUID: "",
+            Token: "",
+            Password: "",
+            Expires: "",
+            ShareUID: "",
             CanComment: false,
             CanEdit: false,
             CreatedAt: "",
@@ -16,7 +16,7 @@ class Link extends RestModel {
     }
 
     getId() {
-        return this.LinkToken;
+        return this.Token;
     }
 
     static getCollectionResource() {

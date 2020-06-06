@@ -18,12 +18,14 @@
             <p-photo-mosaic v-if="settings.view === 'mosaic'"
                             :photos="results"
                             :selection="selection"
+                            :filter="filter"
                             :album="model"
                             :edit-photo="editPhoto"
                             :open-photo="openPhoto"></p-photo-mosaic>
             <p-photo-list v-else-if="settings.view === 'list'"
                           :photos="results"
                           :selection="selection"
+                          :filter="filter"
                           :album="model"
                           :open-photo="openPhoto"
                           :edit-photo="editPhoto"
@@ -31,6 +33,7 @@
             <p-photo-cards v-else
                            :photos="results"
                            :selection="selection"
+                           :filter="filter"
                            :album="model"
                            :open-photo="openPhoto"
                            :edit-photo="editPhoto"
@@ -61,8 +64,8 @@
                 this.lastFilter = {};
                 this.routeName = this.$route.name;
 
-                if (this.uuid !== this.$route.params.uuid) {
-                    this.uuid = this.$route.params.uuid;
+                if (this.uid !== this.$route.params.uid) {
+                    this.uid = this.$route.params.uid;
                     this.findAlbum().then(() => this.search());
                 } else {
                     this.search();
@@ -70,7 +73,7 @@
             }
         },
         data() {
-            const uuid = this.$route.params.uuid;
+            const uid = this.$route.params.uid;
             const query = this.$route.query;
             const routeName = this.$route.name;
             const order = query['order'] ? query['order'] : 'oldest';
@@ -86,10 +89,10 @@
                 listen: false,
                 dirty: false,
                 model: new Album(),
-                uuid: uuid,
+                uid: uid,
                 results: [],
                 scrollDisabled: true,
-                pageSize: 60,
+                pageSize: 120,
                 offset: 0,
                 page: 0,
                 selection: this.$clipboard.selection,
@@ -122,10 +125,14 @@
             openLocation(index) {
                 const photo = this.results[index];
 
-                if (photo.LocationID) {
-                    this.$router.push({name: "place", params: {q: "s2:" + photo.LocationID}});
-                } else if (photo.PlaceID.length > 3) {
-                    this.$router.push({name: "place", params: {q: "s2:" + photo.PlaceID}});
+                if (photo.LocationID && photo.LocationID !== "zz") {
+                    this.$router.push({name: "place", params: {q: photo.LocationID}});
+                } else if (photo.PlaceID && photo.PlaceID !== "zz") {
+                    this.$router.push({name: "place", params: {q: photo.PlaceID}});
+                } else if (photo.Country && photo.Country !== "zz") {
+                    this.$router.push({name: "place", params: {q: "country:" + photo.Country}});
+                } else {
+                    this.$notify.warn("unknown location");
                 }
             },
             editPhoto(index) {
@@ -137,13 +144,13 @@
                 Event.publish("dialog.edit", {selection: selection, album: this.album, index: index});
             },
             openPhoto(index, showMerged) {
-                if(!this.results[index]) {
+                if (!this.results[index]) {
                     return false;
                 }
 
-                if (showMerged && this.results[index].PhotoVideo) {
-                    if(this.results[index].isPlayable()) {
-                        Event.publish("dialog.video", {play: this.results[index], album: this.album});
+                if (showMerged && (this.results[index].Type === 'video' || this.results[index].Type === 'live')) {
+                    if (this.results[index].isPlayable()) {
+                        this.$modal.show('video', {video: this.results[index], album: this.album});
                     } else {
                         this.$viewer.show(Thumb.fromPhotos(this.results), index);
                     }
@@ -167,7 +174,8 @@
                 const params = {
                     count: count,
                     offset: offset,
-                    album: this.uuid,
+                    album: this.uid,
+                    filter: this.model.Filter ? this.model.Filter : "",
                     merged: true,
                 };
 
@@ -180,7 +188,7 @@
                 Photo.search(params).then(response => {
                     this.results = Photo.mergeResponse(this.results, response);
 
-                    this.scrollDisabled = (response.models.length < count);
+                    this.scrollDisabled = (response.count < count);
 
                     if (this.scrollDisabled) {
                         this.offset = offset;
@@ -223,7 +231,8 @@
                 const params = {
                     count: this.pageSize,
                     offset: this.offset,
-                    album: this.uuid,
+                    album: this.uid,
+                    filter: this.model.Filter ? this.model.Filter : "",
                     merged: true,
                 };
 
@@ -266,11 +275,11 @@
 
                     this.results = response.models;
 
-                    this.scrollDisabled = (response.models.length < this.pageSize);
+                    this.scrollDisabled = (response.count < this.pageSize);
 
                     if (this.scrollDisabled) {
                         if (!this.results.length) {
-                            this.$notify.warning(this.$gettext("No photos found"));
+                            this.$notify.warn(this.$gettext("No photos found"));
                         } else if (this.results.length === 1) {
                             this.$notify.info(this.$gettext("One photo found"));
                         } else {
@@ -288,11 +297,11 @@
                 });
             },
             findAlbum() {
-                return this.model.find(this.uuid).then(m => {
+                return this.model.find(this.uid).then(m => {
                     this.model = m;
 
-                    this.filter.order = m.AlbumOrder;
-                    window.document.title = `PhotoPrism: ${this.model.AlbumName}`;
+                    this.filter.order = m.Order;
+                    window.document.title = `${this.$config.get("siteTitle")}: ${this.model.Title}`;
 
                     return Promise.resolve(this.model)
                 });
@@ -305,7 +314,7 @@
                 }
 
                 for (let i = 0; i < data.entities.length; i++) {
-                    if (this.model.AlbumUUID === data.entities[i].AlbumUUID) {
+                    if (this.model.UID === data.entities[i].UID) {
                         let values = data.entities[i];
 
                         for (let key in values) {
@@ -314,13 +323,13 @@
                             }
                         }
 
-                        window.document.title = `PhotoPrism: ${this.model.AlbumName}`
+                        window.document.title = `${this.$config.get("siteTitle")}: ${this.model.Title}`
 
                         this.dirty = true;
                         this.scrollDisabled = false;
 
-                        if (this.filter.order !== this.model.AlbumOrder) {
-                            this.filter.order = this.model.AlbumOrder;
+                        if (this.filter.order !== this.model.Order) {
+                            this.filter.order = this.model.Order;
                             this.updateQuery();
                         } else {
                             this.loadMore();
@@ -343,7 +352,7 @@
                     case 'updated':
                         for (let i = 0; i < data.entities.length; i++) {
                             const values = data.entities[i];
-                            const model = this.results.find((m) => m.PhotoUUID === values.PhotoUUID);
+                            const model = this.results.find((m) => m.UID === values.UID);
 
                             if (model) {
                                 for (let key in values) {
@@ -365,11 +374,14 @@
                         this.dirty = true;
 
                         for (let i = 0; i < data.entities.length; i++) {
-                            const uuid = data.entities[i];
-                            const index = this.results.findIndex((m) => m.PhotoUUID === uuid);
+                            const uid = data.entities[i];
+                            const index = this.results.findIndex((m) => m.UID === uid);
+
                             if (index >= 0) {
                                 this.results.splice(index, 1);
                             }
+
+                            this.$clipboard.removeId(uid);
                         }
 
                         break;

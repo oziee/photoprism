@@ -2,11 +2,12 @@ package api
 
 import (
 	"archive/zip"
+	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"os"
 	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/photoprism/photoprism/internal/event"
 	"github.com/photoprism/photoprism/internal/form"
 	"github.com/photoprism/photoprism/internal/query"
+	"github.com/photoprism/photoprism/internal/service"
 	"github.com/photoprism/photoprism/internal/thumb"
 	"github.com/photoprism/photoprism/pkg/fs"
 	"github.com/photoprism/photoprism/pkg/rnd"
@@ -42,7 +44,7 @@ func GetAlbums(router *gin.RouterGroup, conf *config.Config) {
 			return
 		}
 
-		result, err := query.Albums(f)
+		result, err := query.AlbumSearch(f)
 		if err != nil {
 			c.AbortWithStatusJSON(400, gin.H{"error": txt.UcFirst(err.Error())})
 			return
@@ -56,11 +58,11 @@ func GetAlbums(router *gin.RouterGroup, conf *config.Config) {
 	})
 }
 
-// GET /api/v1/albums/:uuid
+// GET /api/v1/albums/:uid
 func GetAlbum(router *gin.RouterGroup, conf *config.Config) {
-	router.GET("/albums/:uuid", func(c *gin.Context) {
-		id := c.Param("uuid")
-		m, err := query.AlbumByUUID(id)
+	router.GET("/albums/:uid", func(c *gin.Context) {
+		id := c.Param("uid")
+		m, err := query.AlbumByUID(id)
 
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusNotFound, ErrAlbumNotFound)
@@ -86,37 +88,37 @@ func CreateAlbum(router *gin.RouterGroup, conf *config.Config) {
 			return
 		}
 
-		m := entity.NewAlbum(f.AlbumName)
+		m := entity.NewAlbum(f.AlbumTitle, entity.TypeAlbum)
 		m.AlbumFavorite = f.AlbumFavorite
 
 		log.Debugf("create album: %+v %+v", f, m)
 
 		if res := entity.Db().Create(m); res.Error != nil {
 			log.Error(res.Error.Error())
-			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("%s already exists", txt.Quote(m.AlbumName))})
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("%s already exists", txt.Quote(m.AlbumTitle))})
 			return
 		}
 
 		event.Success("album created")
 
-		event.Publish("config.updated", event.Data(conf.ClientConfig()))
+		UpdateClientConfig(conf)
 
-		PublishAlbumEvent(EntityCreated, m.AlbumUUID, c)
+		PublishAlbumEvent(EntityCreated, m.AlbumUID, c)
 
 		c.JSON(http.StatusOK, m)
 	})
 }
 
-// PUT /api/v1/albums/:uuid
+// PUT /api/v1/albums/:uid
 func UpdateAlbum(router *gin.RouterGroup, conf *config.Config) {
-	router.PUT("/albums/:uuid", func(c *gin.Context) {
+	router.PUT("/albums/:uid", func(c *gin.Context) {
 		if Unauthorized(c, conf) {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, ErrUnauthorized)
 			return
 		}
 
-		uuid := c.Param("uuid")
-		m, err := query.AlbumByUUID(uuid)
+		uid := c.Param("uid")
+		m, err := query.AlbumByUID(uid)
 
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusNotFound, ErrAlbumNotFound)
@@ -137,32 +139,33 @@ func UpdateAlbum(router *gin.RouterGroup, conf *config.Config) {
 			return
 		}
 
-		if err := m.Save(f); err != nil {
+		if err := m.SaveForm(f); err != nil {
 			log.Error(err)
 			c.AbortWithStatusJSON(http.StatusInternalServerError, ErrSaveFailed)
 			return
 		}
 
-		event.Publish("config.updated", event.Data(conf.ClientConfig()))
+		UpdateClientConfig(conf)
+
 		event.Success("album saved")
 
-		PublishAlbumEvent(EntityUpdated, uuid, c)
+		PublishAlbumEvent(EntityUpdated, uid, c)
 
 		c.JSON(http.StatusOK, m)
 	})
 }
 
-// DELETE /api/v1/albums/:uuid
+// DELETE /api/v1/albums/:uid
 func DeleteAlbum(router *gin.RouterGroup, conf *config.Config) {
-	router.DELETE("/albums/:uuid", func(c *gin.Context) {
+	router.DELETE("/albums/:uid", func(c *gin.Context) {
 		if Unauthorized(c, conf) {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, ErrUnauthorized)
 			return
 		}
 
-		id := c.Param("uuid")
+		id := c.Param("uid")
 
-		m, err := query.AlbumByUUID(id)
+		m, err := query.AlbumByUID(id)
 
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusNotFound, ErrAlbumNotFound)
@@ -173,26 +176,26 @@ func DeleteAlbum(router *gin.RouterGroup, conf *config.Config) {
 
 		conf.Db().Delete(&m)
 
-		event.Publish("config.updated", event.Data(conf.ClientConfig()))
-		event.Success(fmt.Sprintf("album %s deleted", txt.Quote(m.AlbumName)))
+		UpdateClientConfig(conf)
+		event.Success(fmt.Sprintf("album %s deleted", txt.Quote(m.AlbumTitle)))
 
 		c.JSON(http.StatusOK, m)
 	})
 }
 
-// POST /api/v1/albums/:uuid/like
+// POST /api/v1/albums/:uid/like
 //
 // Parameters:
-//   uuid: string Album UUID
+//   uid: string Album UID
 func LikeAlbum(router *gin.RouterGroup, conf *config.Config) {
-	router.POST("/albums/:uuid/like", func(c *gin.Context) {
+	router.POST("/albums/:uid/like", func(c *gin.Context) {
 		if Unauthorized(c, conf) {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, ErrUnauthorized)
 			return
 		}
 
-		id := c.Param("uuid")
-		album, err := query.AlbumByUUID(id)
+		id := c.Param("uid")
+		album, err := query.AlbumByUID(id)
 
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusNotFound, ErrAlbumNotFound)
@@ -202,26 +205,26 @@ func LikeAlbum(router *gin.RouterGroup, conf *config.Config) {
 		album.AlbumFavorite = true
 		conf.Db().Save(&album)
 
-		event.Publish("config.updated", event.Data(conf.ClientConfig()))
+		UpdateClientConfig(conf)
 		PublishAlbumEvent(EntityUpdated, id, c)
 
 		c.JSON(http.StatusOK, http.Response{})
 	})
 }
 
-// DELETE /api/v1/albums/:uuid/like
+// DELETE /api/v1/albums/:uid/like
 //
 // Parameters:
-//   uuid: string Album UUID
+//   uid: string Album UID
 func DislikeAlbum(router *gin.RouterGroup, conf *config.Config) {
-	router.DELETE("/albums/:uuid/like", func(c *gin.Context) {
+	router.DELETE("/albums/:uid/like", func(c *gin.Context) {
 		if Unauthorized(c, conf) {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, ErrUnauthorized)
 			return
 		}
 
-		id := c.Param("uuid")
-		album, err := query.AlbumByUUID(id)
+		id := c.Param("uid")
+		album, err := query.AlbumByUID(id)
 
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusNotFound, ErrAlbumNotFound)
@@ -231,16 +234,16 @@ func DislikeAlbum(router *gin.RouterGroup, conf *config.Config) {
 		album.AlbumFavorite = false
 		conf.Db().Save(&album)
 
-		event.Publish("config.updated", event.Data(conf.ClientConfig()))
+		UpdateClientConfig(conf)
 		PublishAlbumEvent(EntityUpdated, id, c)
 
 		c.JSON(http.StatusOK, http.Response{})
 	})
 }
 
-// POST /api/v1/albums/:uuid/photos
+// POST /api/v1/albums/:uid/photos
 func AddPhotosToAlbum(router *gin.RouterGroup, conf *config.Config) {
-	router.POST("/albums/:uuid/photos", func(c *gin.Context) {
+	router.POST("/albums/:uid/photos", func(c *gin.Context) {
 		if Unauthorized(c, conf) {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, ErrUnauthorized)
 			return
@@ -253,8 +256,8 @@ func AddPhotosToAlbum(router *gin.RouterGroup, conf *config.Config) {
 			return
 		}
 
-		uuid := c.Param("uuid")
-		a, err := query.AlbumByUUID(uuid)
+		uid := c.Param("uid")
+		a, err := query.AlbumByUID(uid)
 
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusNotFound, ErrAlbumNotFound)
@@ -269,27 +272,25 @@ func AddPhotosToAlbum(router *gin.RouterGroup, conf *config.Config) {
 			return
 		}
 
-		var added []*entity.PhotoAlbum
+		added := a.AddPhotos(photos.UIDs())
 
-		for _, p := range photos {
-			added = append(added, entity.NewPhotoAlbum(p.PhotoUUID, a.AlbumUUID).FirstOrCreate())
+		if len(added) > 0 {
+			if len(added) == 1 {
+				event.Success(fmt.Sprintf("one entry added to %s", txt.Quote(a.Title())))
+			} else {
+				event.Success(fmt.Sprintf("%d entries added to %s", len(added), txt.Quote(a.Title())))
+			}
+
+			PublishAlbumEvent(EntityUpdated, a.AlbumUID, c)
 		}
 
-		if len(added) == 1 {
-			event.Success(fmt.Sprintf("one photo added to %s", a.AlbumName))
-		} else {
-			event.Success(fmt.Sprintf("%d photos added to %s", len(added), a.AlbumName))
-		}
-
-		PublishAlbumEvent(EntityUpdated, a.AlbumUUID, c)
-
-		c.JSON(http.StatusOK, gin.H{"message": "photos added to album", "album": a, "added": added})
+		c.JSON(http.StatusOK, gin.H{"message": "photos added to album", "album": a, "photos": photos.UIDs(), "added": added})
 	})
 }
 
-// DELETE /api/v1/albums/:uuid/photos
+// DELETE /api/v1/albums/:uid/photos
 func RemovePhotosFromAlbum(router *gin.RouterGroup, conf *config.Config) {
-	router.DELETE("/albums/:uuid/photos", func(c *gin.Context) {
+	router.DELETE("/albums/:uid/photos", func(c *gin.Context) {
 		if Unauthorized(c, conf) {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, ErrUnauthorized)
 			return
@@ -308,40 +309,47 @@ func RemovePhotosFromAlbum(router *gin.RouterGroup, conf *config.Config) {
 			return
 		}
 
-		a, err := query.AlbumByUUID(c.Param("uuid"))
+		a, err := query.AlbumByUID(c.Param("uid"))
 
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusNotFound, ErrAlbumNotFound)
 			return
 		}
 
-		entity.Db().Where("album_uuid = ? AND photo_uuid IN (?)", a.AlbumUUID, f.Photos).Delete(&entity.PhotoAlbum{})
+		removed := a.RemovePhotos(f.Photos)
 
-		event.Success(fmt.Sprintf("photos removed from %s", a.AlbumName))
+		if len(removed) > 0 {
+			if len(removed) == 1 {
+				event.Success(fmt.Sprintf("one entry removed from %s", txt.Quote(a.Title())))
+			} else {
+				event.Success(fmt.Sprintf("%d entries removed from %s", len(removed), txt.Quote(txt.Quote(a.Title()))))
+			}
 
-		PublishAlbumEvent(EntityUpdated, a.AlbumUUID, c)
+			PublishAlbumEvent(EntityUpdated, a.AlbumUID, c)
+		}
 
-		c.JSON(http.StatusOK, gin.H{"message": "photos removed from album", "album": a, "photos": f.Photos})
+		c.JSON(http.StatusOK, gin.H{"message": "entries removed from album", "album": a, "photos": f.Photos, "removed": removed})
 	})
 }
 
-// GET /albums/:uuid/download
+// GET /albums/:uid/dl
 func DownloadAlbum(router *gin.RouterGroup, conf *config.Config) {
-	router.GET("/albums/:uuid/download", func(c *gin.Context) {
+	router.GET("/albums/:uid/dl", func(c *gin.Context) {
+		if InvalidDownloadToken(c, conf) {
+			c.Data(http.StatusForbidden, "image/svg+xml", brokenIconSvg)
+			return
+		}
+
 		start := time.Now()
 
-		a, err := query.AlbumByUUID(c.Param("uuid"))
+		a, err := query.AlbumByUID(c.Param("uid"))
 
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusNotFound, ErrAlbumNotFound)
 			return
 		}
 
-		p, _, err := query.Photos(form.PhotoSearch{
-			Album:  a.AlbumUUID,
-			Count:  10000,
-			Offset: 0,
-		})
+		p, err := query.AlbumPhotos(a, 10000)
 
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": txt.UcFirst(err.Error())})
@@ -384,9 +392,7 @@ func DownloadAlbum(router *gin.RouterGroup, conf *config.Config) {
 				}
 				log.Infof("album: added %s as %s", txt.Quote(f.FileName), txt.Quote(fileAlias))
 			} else {
-				log.Warnf("album: %s is missing", txt.Quote(f.FileName))
-				f.FileMissing = true
-				conf.Db().Save(&f)
+				log.Errorf("album: file %s is missing", txt.Quote(f.FileName))
 			}
 		}
 
@@ -410,38 +416,63 @@ func DownloadAlbum(router *gin.RouterGroup, conf *config.Config) {
 	})
 }
 
-// GET /api/v1/albums/:uuid/thumbnail/:type
+// GET /api/v1/albums/:uid/t/:token/:type
 //
 // Parameters:
-//   uuid: string Album UUID
+//   uid: string Album UID
 //   type: string Thumbnail type, see photoprism.ThumbnailTypes
 func AlbumThumbnail(router *gin.RouterGroup, conf *config.Config) {
-	router.GET("/albums/:uuid/thumbnail/:type", func(c *gin.Context) {
-		typeName := c.Param("type")
-		uuid := c.Param("uuid")
+	router.GET("/albums/:uid/t/:token/:type", func(c *gin.Context) {
+		if InvalidToken(c, conf) {
+			c.Data(http.StatusForbidden, "image/svg+xml", albumIconSvg)
+			return
+		}
+
 		start := time.Now()
+		typeName := c.Param("type")
+		uid := c.Param("uid")
 
 		thumbType, ok := thumb.Types[typeName]
 
 		if !ok {
-			log.Errorf("album: invalid thumb type %s", typeName)
-			c.Data(http.StatusOK, "image/svg+xml", photoIconSvg)
+			log.Errorf("album-thumbnail: invalid type %s", typeName)
+			c.Data(http.StatusOK, "image/svg+xml", albumIconSvg)
 			return
 		}
 
-		gc := conf.Cache()
-		cacheKey := fmt.Sprintf("album-thumbnail:%s:%s", uuid, typeName)
+		cache := service.Cache()
+		cacheKey := fmt.Sprintf("album-thumbnail:%s:%s", uid, typeName)
 
-		if cacheData, ok := gc.Get(cacheKey); ok {
-			log.Debugf("album: %s cache hit [%s]", cacheKey, time.Since(start))
-			c.Data(http.StatusOK, "image/jpeg", cacheData.([]byte))
+		if cacheData, err := cache.Get(cacheKey); err == nil {
+			log.Debugf("cache hit for %s [%s]", cacheKey, time.Since(start))
+
+			var cached ThumbCache
+
+			if err := json.Unmarshal(cacheData, &cached); err != nil {
+				log.Errorf("album-thumbnail: %s not found", uid)
+				c.Data(http.StatusOK, "image/svg+xml", albumIconSvg)
+				return
+			}
+
+			if !fs.FileExists(cached.FileName) {
+				log.Errorf("album-thumbnail: %s not found", uid)
+				c.Data(http.StatusOK, "image/svg+xml", albumIconSvg)
+				return
+			}
+
+			if c.Query("download") != "" {
+				c.FileAttachment(cached.FileName, cached.ShareName)
+			} else {
+				c.File(cached.FileName)
+			}
+
 			return
 		}
 
-		f, err := query.AlbumThumbByUUID(uuid)
+		f, err := query.AlbumCoverByUID(uid)
 
 		if err != nil {
-			log.Debugf("album: no photos yet, using generic image for %s", uuid)
+			log.Debugf("album-thumbnail: no photos yet, using generic image for %s", uid)
 			c.Data(http.StatusOK, "image/svg+xml", albumIconSvg)
 			return
 		}
@@ -449,18 +480,18 @@ func AlbumThumbnail(router *gin.RouterGroup, conf *config.Config) {
 		fileName := path.Join(conf.OriginalsPath(), f.FileName)
 
 		if !fs.FileExists(fileName) {
-			log.Errorf("album: could not find original for %s", fileName)
-			c.Data(http.StatusOK, "image/svg+xml", photoIconSvg)
+			log.Errorf("album-thumbnail: could not find original for %s", fileName)
+			c.Data(http.StatusOK, "image/svg+xml", albumIconSvg)
 
-			// Set missing flag so that the file doesn't show up in search results anymore
-			f.FileMissing = true
-			entity.Db().Save(&f)
+			// Set missing flag so that the file doesn't show up in search results anymore.
+			log.Warnf("album-thumbnail: %s is missing", txt.Quote(f.FileName))
+			logError("album-thumbnail", f.Update("FileMissing", true))
 			return
 		}
 
 		// Use original file if thumb size exceeds limit, see https://github.com/photoprism/photoprism/issues/157
 		if thumbType.ExceedsLimit() && c.Query("download") == "" {
-			log.Debugf("album: using original, thumbnail size exceeds limit (width %d, height %d)", thumbType.Width, thumbType.Height)
+			log.Debugf("album-thumbnail: using original, size exceeds limit (width %d, height %d)", thumbType.Width, thumbType.Height)
 			c.File(fileName)
 			return
 		}
@@ -477,24 +508,21 @@ func AlbumThumbnail(router *gin.RouterGroup, conf *config.Config) {
 			log.Errorf("album: %s", err)
 			c.Data(http.StatusOK, "image/svg+xml", photoIconSvg)
 			return
-		}
-
-		if c.Query("download") != "" {
-			c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", f.ShareFileName()))
-		}
-
-		thumbData, err := ioutil.ReadFile(thumbnail)
-
-		if err != nil {
-			log.Errorf("album: %s", err)
+		} else if thumbnail == "" {
+			log.Errorf("album-thumbnail: %s has empty thumb name - bug?", filepath.Base(fileName))
 			c.Data(http.StatusOK, "image/svg+xml", albumIconSvg)
 			return
 		}
 
-		gc.Set(cacheKey, thumbData, time.Hour)
+		if cached, err := json.Marshal(ThumbCache{thumbnail, f.ShareFileName()}); err == nil {
+			logError("album-thumbnail", cache.Set(cacheKey, cached))
+			log.Debugf("cached %s [%s]", cacheKey, time.Since(start))
+		}
 
-		log.Debugf("album: %s cached [%s]", cacheKey, time.Since(start))
-
-		c.Data(http.StatusOK, "image/jpeg", thumbData)
+		if c.Query("download") != "" {
+			c.FileAttachment(thumbnail, f.ShareFileName())
+		} else {
+			c.File(thumbnail)
+		}
 	})
 }

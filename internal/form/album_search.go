@@ -4,12 +4,18 @@ package form
 type AlbumSearch struct {
 	Query    string `form:"q"`
 	ID       string `form:"id"`
+	Type     string `form:"type"`
+	Category string `form:"category"`
 	Slug     string `form:"slug"`
-	Name     string `form:"name"`
+	Title    string `form:"title"`
+	Country  string `json:"country"`
+	Year     int    `json:"year"`
+	Month    int    `json:"month"`
 	Favorite bool   `form:"favorite"`
-	Count    int    `form:"count" binding:"required"`
-	Offset   int    `form:"offset"`
-	Order    string `form:"order"`
+	Private  bool   `form:"private"`
+	Count    int    `form:"count" binding:"required" serialize:"-"`
+	Offset   int    `form:"offset" serialize:"-"`
+	Order    string `form:"order" serialize:"-"`
 }
 
 func (f *AlbumSearch) GetQuery() string {

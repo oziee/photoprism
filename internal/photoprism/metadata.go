@@ -1,6 +1,7 @@
 package photoprism
 
 import (
+	"errors"
 	"path/filepath"
 
 	"github.com/photoprism/photoprism/internal/meta"
@@ -9,22 +10,29 @@ import (
 )
 
 // MetaData returns exif meta data of a media file.
-func (m *MediaFile) MetaData() (result meta.Data, err error) {
+func (m *MediaFile) MetaData() (result meta.Data) {
 	m.metaDataOnce.Do(func() {
-		err = m.metaData.Exif(m.FileName())
+		var err error
 
-		if jsonFile := fs.TypeJson.Find(m.FileName(), false); jsonFile == "" {
+		if m.IsPhoto() {
+			err = m.metaData.Exif(m.FileName())
+		} else {
+			err = errors.New("not a photo")
+		}
+
+		if jsonFile := fs.TypeJson.FindSub(m.FileName(), fs.HiddenPath, false); jsonFile == "" {
 			log.Debugf("mediafile: no json sidecar file found for %s", txt.Quote(filepath.Base(m.FileName())))
-		} else if jsonErr := m.metaData.JSON(jsonFile); jsonErr != nil {
-			log.Warn(jsonErr)
+		} else if jsonErr := m.metaData.JSON(jsonFile, m.BaseName()); jsonErr != nil {
+			log.Debug(jsonErr)
 		} else {
 			err = nil
 		}
 
 		if err != nil {
+			m.metaData.Error = err
 			log.Debugf("mediafile: %s", err.Error())
 		}
 	})
 
-	return m.metaData, err
+	return m.metaData
 }

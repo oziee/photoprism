@@ -11,7 +11,7 @@ func (m AlbumMap) Get(name string) Album {
 		return result
 	}
 
-	return *NewAlbum(name)
+	return *NewAlbum(name, TypeAlbum)
 }
 
 func (m AlbumMap) Pointer(name string) *Album {
@@ -19,16 +19,17 @@ func (m AlbumMap) Pointer(name string) *Album {
 		return &result
 	}
 
-	return NewAlbum(name)
+	return NewAlbum(name, TypeAlbum)
 }
 
 var AlbumFixtures = AlbumMap{
 	"christmas2030": {
 		ID:               1000000,
-		CoverUUID:        "",
-		AlbumUUID:        "at9lxuqxpogaaba7",
+		CoverUID:         "",
+		AlbumUID:         "at9lxuqxpogaaba7",
 		AlbumSlug:        "christmas2030",
-		AlbumName:        "Christmas2030",
+		AlbumType:        TypeAlbum,
+		AlbumTitle:       "Christmas2030",
 		AlbumDescription: "Wonderful christmas",
 		AlbumNotes:       "",
 		AlbumOrder:       "oldest",
@@ -41,10 +42,11 @@ var AlbumFixtures = AlbumMap{
 	},
 	"holiday-2030": {
 		ID:               1000001,
-		CoverUUID:        "",
-		AlbumUUID:        "at9lxuqxpogaaba8",
+		CoverUID:         "",
+		AlbumUID:         "at9lxuqxpogaaba8",
 		AlbumSlug:        "holiday-2030",
-		AlbumName:        "Holiday2030",
+		AlbumType:        TypeAlbum,
+		AlbumTitle:       "Holiday2030",
 		AlbumDescription: "Wonderful christmas",
 		AlbumNotes:       "",
 		AlbumOrder:       "newest",
@@ -57,10 +59,11 @@ var AlbumFixtures = AlbumMap{
 	},
 	"berlin-2019": {
 		ID:               1000002,
-		CoverUUID:        "",
-		AlbumUUID:        "at9lxuqxpogaaba9",
+		CoverUID:         "",
+		AlbumUID:         "at9lxuqxpogaaba9",
 		AlbumSlug:        "berlin-2019",
-		AlbumName:        "Berlin2019",
+		AlbumType:        TypeAlbum,
+		AlbumTitle:       "Berlin2019",
 		AlbumDescription: "Wonderful christmas",
 		AlbumNotes:       "",
 		AlbumOrder:       "oldest",
@@ -68,6 +71,42 @@ var AlbumFixtures = AlbumMap{
 		AlbumFavorite:    false,
 		Links:            []Link{},
 		CreatedAt:        time.Date(2019, 7, 1, 0, 0, 0, 0, time.UTC),
+		UpdatedAt:        time.Date(2020, 2, 1, 0, 0, 0, 0, time.UTC),
+		DeletedAt:        nil,
+	},
+	"april-1990": {
+		ID:               1000003,
+		CoverUID:         "",
+		AlbumUID:         "at1lxuqipogaaba1",
+		AlbumSlug:        "april-1990",
+		AlbumType:        TypeFolder,
+		AlbumTitle:       "April 1990",
+		AlbumDescription: "Spring is the time of year when many things change.",
+		AlbumNotes:       "Thunderstorms cause most of the severe spring weather.",
+		AlbumOrder:       "oldest",
+		AlbumTemplate:    "",
+		AlbumFilter:      "path:\"1990/04\"",
+		AlbumFavorite:    false,
+		Links:            []Link{},
+		CreatedAt:        time.Date(2019, 7, 1, 0, 0, 0, 0, time.UTC),
+		UpdatedAt:        time.Date(2020, 2, 1, 0, 0, 0, 0, time.UTC),
+		DeletedAt:        nil,
+	},
+	"import": {
+		ID:               1000004,
+		CoverUID:         "",
+		AlbumUID:         "at6axuzitogaaiax",
+		AlbumSlug:        "import",
+		AlbumType:        TypeAlbum,
+		AlbumTitle:       "Import Album",
+		AlbumDescription: "",
+		AlbumNotes:       "",
+		AlbumOrder:       "name",
+		AlbumTemplate:    "",
+		AlbumFilter:      "",
+		AlbumFavorite:    false,
+		Links:            []Link{},
+		CreatedAt:        time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC),
 		UpdatedAt:        time.Date(2020, 2, 1, 0, 0, 0, 0, time.UTC),
 		DeletedAt:        nil,
 	},

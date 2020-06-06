@@ -4,8 +4,9 @@
 
         <v-form ref="form" class="p-albums-search" lazy-validation @submit.prevent="updateQuery" dense>
             <v-toolbar flat color="secondary">
-                <v-text-field class="pt-3 pr-3"
+                <v-text-field @keyup.enter.native="updateQuery"
                               single-line
+                              class="hidden-xs-only mr-3"
                               :label="labels.search"
                               browser-autocomplete="off"
                               prepend-inner-icon="search"
@@ -13,17 +14,31 @@
                               color="secondary-dark"
                               @click:clear="clearQuery"
                               v-model="filter.q"
-                              @keyup.enter.native="updateQuery"
                               id="search"
                 ></v-text-field>
 
+                <v-select @change="updateQuery"
+                          single-line
+                          :label="labels.category"
+                          color="secondary-dark"
+                          v-model="filter.category"
+                          :items="categories"
+                          class="input-category"
+                >
+                </v-select>
+
                 <v-spacer></v-spacer>
 
-                <v-btn icon @click.stop="refresh">
+                <v-btn icon @click.stop="refresh" class="action-reload">
                     <v-icon>refresh</v-icon>
                 </v-btn>
 
-                <v-btn icon @click.prevent="create">
+                <v-btn icon @click.stop="showUpload()" v-if="!$config.values.readonly && $config.feature('upload')"
+                       class="hidden-sm-and-down">
+                    <v-icon>cloud_upload</v-icon>
+                </v-btn>
+
+                <v-btn icon @click.prevent="create" class="action-add" v-if="staticFilter.type === 'album'">
                     <v-icon>add</v-icon>
                 </v-btn>
             </v-toolbar>
@@ -41,12 +56,24 @@
             <v-container grid-list-xs fluid class="pa-2 p-albums p-albums-cards">
                 <v-card v-if="results.length === 0" class="p-albums-empty secondary-light lighten-1 ma-1" flat>
                     <v-card-title primary-title>
-                        <div>
+                        <div v-if="staticFilter.type === 'moment'">
                             <h3 class="title mb-3">
-                                <translate>No albums matched your search</translate>
+                                <translate key=">No moments">No moments matched your search</translate>
                             </h3>
                             <div>
-                                <translate>Try again using a different term or create a new album</translate>
+                                <translate key=">Wait until">Wait until PhotoPrism has analyzed your library or try
+                                    again using a different term.
+                                </translate>
+                            </div>
+                        </div>
+                        <div v-else>
+                            <h3 class="title mb-3">
+                                <translate key=">No albums">No albums matched your search</translate>
+                            </h3>
+                            <div>
+                                <translate key="Try again">Try again using a different term or create a new album from a
+                                    selection in Photos.
+                                </translate>
                             </div>
                         </div>
                     </v-card-title>
@@ -55,6 +82,7 @@
                     <v-flex
                             v-for="(album, index) in results"
                             :key="index"
+                            :data-uid="album.UID"
                             class="p-album"
                             xs6 sm4 md3 lg2 d-flex
                     >
@@ -62,12 +90,12 @@
                             <v-card tile class="accent lighten-3"
                                     slot-scope="{ hover }"
                                     @contextmenu="onContextMenu($event, index)"
-                                    :dark="selection.includes(album.AlbumUUID)"
-                                    :class="selection.includes(album.AlbumUUID) ? 'elevation-10 ma-0 accent darken-1 white--text' : 'elevation-0 ma-1 accent lighten-3'"
-                                    :to="{name: 'album', params: {uuid: album.AlbumUUID, slug: album.AlbumSlug}}"
+                                    :dark="selection.includes(album.UID)"
+                                    :class="selection.includes(album.UID) ? 'elevation-10 ma-0 accent darken-1 white--text' : 'elevation-0 ma-1 accent lighten-3'"
+                                    :to="{name: view, params: {uid: album.UID, slug: album.Slug, year: album.Year, month: album.Month}}"
                             >
                                 <v-img
-                                        :src="album.getThumbnailUrl('tile_500')"
+                                        :src="album.thumbnailUrl('tile_500')"
                                         @mousedown="onMouseDown($event, index)"
                                         @click="onClick($event, index)"
                                         aspect-ratio="1"
@@ -84,35 +112,36 @@
                                                              color="accent lighten-5"></v-progress-circular>
                                     </v-layout>
 
-                                    <v-btn v-if="hover || selection.includes(album.AlbumUUID)" :flat="!hover" :ripple="false"
+                                    <v-btn v-if="hover || selection.includes(album.UID)" :flat="!hover" :ripple="false"
                                            icon large absolute
-                                           :class="selection.includes(album.AlbumUUID) ? 'p-album-select' : 'p-album-select opacity-50'"
+                                           :class="selection.includes(album.UID) ? 'p-album-select' : 'p-album-select opacity-50'"
                                            @click.stop.prevent="onSelect($event, index)">
-                                        <v-icon v-if="selection.includes(album.AlbumUUID)" color="white">check_circle
+                                        <v-icon v-if="selection.includes(album.UID)" color="white" class="t-select t-on">check_circle
                                         </v-icon>
-                                        <v-icon v-else color="accent lighten-3">radio_button_off</v-icon>
+                                        <v-icon v-else color="accent lighten-3" class="t-select t-off">radio_button_off</v-icon>
                                     </v-btn>
                                 </v-img>
 
                                 <v-card-actions @click.stop.prevent="">
                                     <v-edit-dialog
-                                            :return-value.sync="album.AlbumName"
+                                            :return-value.sync="album.Title"
                                             lazy
                                             @save="onSave(album)"
                                             class="p-inline-edit"
                                     >
-                                        <span v-if="album.AlbumName">
-                                            {{ album.AlbumName }}
+                                        <span v-if="album.Title">
+                                            {{ album.Title }}
                                         </span>
                                         <span v-else>
                                             <v-icon>edit</v-icon>
                                         </span>
                                         <template v-slot:input>
                                             <v-text-field
-                                                    v-model="album.AlbumName"
+                                                    v-model="album.Title"
                                                     :rules="[titleRule]"
-                                                    :label="labels.name"
+                                                    :label="labels.title"
                                                     color="secondary-dark"
+                                                    class="input-title"
                                                     single-line
                                                     autofocus
                                             ></v-text-field>
@@ -121,7 +150,7 @@
 
                                     <v-spacer></v-spacer>
                                     <v-btn icon @click.stop.prevent="album.toggleLike()">
-                                        <v-icon v-if="album.AlbumFavorite" color="#FFD600">star
+                                        <v-icon v-if="album.Favorite" color="#FFD600">star
                                         </v-icon>
                                         <v-icon v-else color="accent lighten-2">star</v-icon>
                                     </v-btn>
@@ -144,13 +173,15 @@
     export default {
         name: 'p-page-albums',
         props: {
-            staticFilter: Object
+            staticFilter: Object,
+            view: String,
         },
         watch: {
             '$route'() {
                 const query = this.$route.query;
 
-                this.filter.q = query['q'] ? query['q'] : '';
+                this.filter.q = query["q"] ? query["q"] : "";
+                this.filter.category = query["category"] ? query["category"] : "";
                 this.lastFilter = {};
                 this.routeName = this.$route.name;
                 this.search();
@@ -159,11 +190,19 @@
         data() {
             const query = this.$route.query;
             const routeName = this.$route.name;
-            const q = query['q'] ? query['q'] : '';
-            const filter = {q: q};
+            const q = query["q"] ? query["q"] : "";
+            const category = query["category"] ? query["category"] : "";
+            const filter = {q, category};
             const settings = {};
 
+            let categories = [{"value": "", "text": this.$gettext("All Categories")}];
+
+            if(this.$config.values.albumCategories) {
+                categories = categories.concat(this.$config.values.albumCategories.map(cat => { return {"value": cat, "text": cat}; }));
+            }
+
             return {
+                categories: categories,
                 subscriptions: [],
                 listen: false,
                 dirty: false,
@@ -181,7 +220,8 @@
                 titleRule: v => v.length <= this.$config.get('clip') || this.$gettext("Title too long"),
                 labels: {
                     search: this.$gettext("Search"),
-                    name: this.$gettext("Album Name"),
+                    title: this.$gettext("Album Name"),
+                    category: this.$gettext("Category"),
                 },
                 mouseDown: {
                     index: -1,
@@ -191,6 +231,9 @@
             };
         },
         methods: {
+            showUpload() {
+                Event.publish("dialog.upload");
+            },
             selectRange(rangeEnd, models) {
                 if (!models || !models[rangeEnd] || !(models[rangeEnd] instanceof RestModel)) {
                     console.warn("selectRange() - invalid arguments:", rangeEnd, models);
@@ -246,7 +289,7 @@
                     ev.preventDefault();
                     ev.stopPropagation();
 
-                    if(this.results[index]) {
+                    if (this.results[index]) {
                         this.selectRange(index, this.results);
                     }
                 }
@@ -358,7 +401,7 @@
 
                     if (this.scrollDisabled) {
                         if (!this.results.length) {
-                            this.$notify.warning(this.$gettext("No albums found"));
+                            this.$notify.warn(this.$gettext("No albums found"));
                         } else if (this.results.length === 1) {
                             this.$notify.info(this.$gettext("One album found"));
                         } else {
@@ -384,41 +427,41 @@
                 this.loadMore();
             },
             create() {
-                let name = DateTime.local().toFormat("LLLL yyyy");
+                let title = DateTime.local().toFormat("LLLL yyyy");
 
-                if (this.results.findIndex(a => a.AlbumName.startsWith(name)) !== -1) {
-                    const existing = this.results.filter(a => a.AlbumName.startsWith(name));
-                    name = `${name} (${existing.length + 1})`
+                if (this.results.findIndex(a => a.Title.startsWith(title)) !== -1) {
+                    const existing = this.results.filter(a => a.Title.startsWith(title));
+                    title = `${title} (${existing.length + 1})`
                 }
 
-                const album = new Album({"AlbumName": name, "AlbumFavorite": true});
+                const album = new Album({"Title": title, "Favorite": true});
 
                 album.save();
             },
             onSave(album) {
                 album.update();
             },
-            addSelection(uuid) {
-                const pos = this.selection.indexOf(uuid);
+            addSelection(uid) {
+                const pos = this.selection.indexOf(uid);
 
                 if (pos === -1) {
-                    this.selection.push(uuid)
-                    this.lastId = uuid;
+                    this.selection.push(uid)
+                    this.lastId = uid;
                 }
             },
-            toggleSelection(uuid) {
-                const pos = this.selection.indexOf(uuid);
+            toggleSelection(uid) {
+                const pos = this.selection.indexOf(uid);
 
                 if (pos !== -1) {
                     this.selection.splice(pos, 1);
                     this.lastId = "";
                 } else {
-                    this.selection.push(uuid);
-                    this.lastId = uuid;
+                    this.selection.push(uid);
+                    this.lastId = uid;
                 }
             },
-            removeSelection(uuid) {
-                const pos = this.selection.indexOf(uuid);
+            removeSelection(uid) {
+                const pos = this.selection.indexOf(uid);
 
                 if (pos !== -1) {
                     this.selection.splice(pos, 1);
@@ -442,11 +485,13 @@
                     case 'updated':
                         for (let i = 0; i < data.entities.length; i++) {
                             const values = data.entities[i];
-                            const model = this.results.find((m) => m.AlbumUUID === values.AlbumUUID);
+                            const model = this.results.find((m) => m.UID === values.UID);
 
-                            for (let key in values) {
-                                if (values.hasOwnProperty(key)) {
-                                    model[key] = values[key];
+                            if (model) {
+                                for (let key in values) {
+                                    if (values.hasOwnProperty(key) && values[key] != null && typeof values[key] !== "object") {
+                                        model[key] = values[key];
+                                    }
                                 }
                             }
                         }
@@ -455,14 +500,14 @@
                         this.dirty = true;
 
                         for (let i = 0; i < data.entities.length; i++) {
-                            const uuid = data.entities[i];
-                            const index = this.results.findIndex((m) => m.AlbumUUID === uuid);
+                            const uid = data.entities[i];
+                            const index = this.results.findIndex((m) => m.UID === uid);
 
                             if (index >= 0) {
                                 this.results.splice(index, 1);
                             }
 
-                            this.removeSelection(uuid)
+                            this.removeSelection(uid)
                         }
 
                         break;
@@ -471,8 +516,9 @@
 
                         for (let i = 0; i < data.entities.length; i++) {
                             const values = data.entities[i];
-                            const index = this.results.findIndex((m) => m.AlbumUUID === values.AlbumUUID);
-                            if (index === -1) {
+                            const index = this.results.findIndex((m) => m.UID === values.UID);
+
+                            if (index === -1 && this.staticFilter.type === values.Type) {
                                 this.results.unshift(new Album(values));
                             }
                         }

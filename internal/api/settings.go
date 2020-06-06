@@ -5,7 +5,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/photoprism/photoprism/internal/config"
-	"github.com/photoprism/photoprism/internal/event"
 	"github.com/photoprism/photoprism/pkg/txt"
 )
 
@@ -26,7 +25,7 @@ func GetSettings(router *gin.RouterGroup, conf *config.Config) {
 // POST /api/v1/settings
 func SaveSettings(router *gin.RouterGroup, conf *config.Config) {
 	router.POST("/settings", func(c *gin.Context) {
-		if conf.DisableSettings() || Unauthorized(c, conf) {
+		if conf.SettingsHidden() || Unauthorized(c, conf) {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, ErrUnauthorized)
 			return
 		}
@@ -43,7 +42,8 @@ func SaveSettings(router *gin.RouterGroup, conf *config.Config) {
 			return
 		}
 
-		event.Publish("config.updated", event.Data(conf.ClientConfig()))
+		UpdateClientConfig(conf)
+
 		log.Infof("settings saved")
 
 		c.JSON(http.StatusOK, s)

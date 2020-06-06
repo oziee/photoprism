@@ -2,8 +2,8 @@
     <div class="p-page p-page-photos" v-infinite-scroll="loadMore" :infinite-scroll-disabled="scrollDisabled"
          :infinite-scroll-distance="10" :infinite-scroll-listen-for-event="'scrollRefresh'">
 
-        <p-photo-search :settings="settings" :filter="filter" :filter-change="updateQuery" :dirty="dirty"
-                        :refresh="refresh"></p-photo-search>
+        <p-photo-toolbar :settings="settings" :filter="filter" :filter-change="updateQuery" :dirty="dirty"
+                         :refresh="refresh"></p-photo-toolbar>
 
         <v-container fluid class="pa-4" v-if="loading">
             <v-progress-linear color="secondary-dark" :indeterminate="true"></v-progress-linear>
@@ -16,17 +16,20 @@
             <p-photo-mosaic v-if="settings.view === 'mosaic'"
                             :photos="results"
                             :selection="selection"
+                            :filter="filter"
                             :edit-photo="editPhoto"
                             :open-photo="openPhoto"></p-photo-mosaic>
             <p-photo-list v-else-if="settings.view === 'list'"
                           :photos="results"
                           :selection="selection"
+                          :filter="filter"
                           :open-photo="openPhoto"
                           :edit-photo="editPhoto"
                           :open-location="openLocation"></p-photo-list>
             <p-photo-cards v-else
                            :photos="results"
                            :selection="selection"
+                           :filter="filter"
                            :open-photo="openPhoto"
                            :edit-photo="editPhoto"
                            :open-location="openLocation"></p-photo-cards>
@@ -53,6 +56,7 @@
                 this.filter.country = query['country'] ? query['country'] : '';
                 this.filter.lens = query['lens'] ? parseInt(query['lens']) : 0;
                 this.filter.year = query['year'] ? parseInt(query['year']) : 0;
+                this.filter.month = query['month'] ? parseInt(query['month']) : 0;
                 this.filter.color = query['color'] ? query['color'] : '';
                 this.filter.label = query['label'] ? query['label'] : '';
                 this.filter.order = this.sortOrder();
@@ -71,6 +75,7 @@
             const country = query['country'] ? query['country'] : '';
             const lens = query['lens'] ? parseInt(query['lens']) : 0;
             const year = query['year'] ? parseInt(query['year']) : 0;
+            const month = query['month'] ? parseInt(query['month']) : 0;
             const color = query['color'] ? query['color'] : '';
             const label = query['label'] ? query['label'] : '';
             const view = this.viewType();
@@ -80,6 +85,7 @@
                 lens: lens,
                 label: label,
                 year: year,
+                month: month,
                 color: color,
                 order: order,
                 q: q,
@@ -87,11 +93,11 @@
 
             const settings = this.$config.settings();
 
-            if (settings.features.private) {
+            if (settings && settings.features.private) {
                 filter.public = true;
             }
 
-            if (settings.features.review) {
+            if (settings && settings.features.review && (!this.staticFilter || !("quality" in this.staticFilter))) {
                 filter.quality = 3;
             }
 
@@ -159,10 +165,14 @@
             openLocation(index) {
                 const photo = this.results[index];
 
-                if (photo.LocationID) {
-                    this.$router.push({name: "place", params: {q: "s2:" + photo.LocationID}});
-                } else if (photo.PlaceID.length > 3) {
-                    this.$router.push({name: "place", params: {q: "s2:" + photo.PlaceID}});
+                if (photo.LocationID && photo.LocationID !== "zz") {
+                    this.$router.push({name: "place", params: {q: photo.LocationID}});
+                } else if (photo.PlaceID && photo.PlaceID !== "zz") {
+                    this.$router.push({name: "place", params: {q: photo.PlaceID}});
+                } else if (photo.Country && photo.Country !== "zz") {
+                    this.$router.push({name: "place", params: {q: "country:" + photo.Country}});
+                } else {
+                    this.$notify.warn("unknown location");
                 }
             },
             editPhoto(index) {
@@ -174,13 +184,13 @@
                 Event.publish("dialog.edit", {selection: selection, album: null, index: index});
             },
             openPhoto(index, showMerged) {
-                if(!this.results[index]) {
+                if (!this.results[index]) {
                     return false;
                 }
 
-                if (showMerged && this.results[index].PhotoVideo) {
-                    if(this.results[index].isPlayable()) {
-                        Event.publish("dialog.video", {play: this.results[index], album: null});
+                if (showMerged && (this.results[index].Type === 'video' || this.results[index].Type === 'live')) {
+                    if (this.results[index].isPlayable()) {
+                        this.$modal.show('video', {video: this.results[index], album: null});
                     } else {
                         this.$viewer.show(Thumb.fromPhotos(this.results), index);
                     }
@@ -303,7 +313,7 @@
 
                     if (this.scrollDisabled) {
                         if (!this.results.length) {
-                            this.$notify.warning(this.$gettext("No photos found"));
+                            this.$notify.warn(this.$gettext("No photos found"));
                         } else if (this.results.length === 1) {
                             this.$notify.info(this.$gettext("One photo found"));
                         } else {
@@ -338,7 +348,7 @@
                     case 'updated':
                         for (let i = 0; i < data.entities.length; i++) {
                             const values = data.entities[i];
-                            const model = this.results.find((m) => m.PhotoUUID === values.PhotoUUID);
+                            const model = this.results.find((m) => m.UID === values.UID);
 
                             if (model) {
                                 for (let key in values) {
@@ -355,8 +365,8 @@
                         if (this.context !== "archive") break;
 
                         for (let i = 0; i < data.entities.length; i++) {
-                            const uuid = data.entities[i];
-                            const index = this.results.findIndex((m) => m.PhotoUUID === uuid);
+                            const uid = data.entities[i];
+                            const index = this.results.findIndex((m) => m.UID === uid);
                             if (index >= 0) {
                                 this.results.splice(index, 1);
                             }
@@ -369,11 +379,14 @@
                         if (this.context === "archive") break;
 
                         for (let i = 0; i < data.entities.length; i++) {
-                            const uuid = data.entities[i];
-                            const index = this.results.findIndex((m) => m.PhotoUUID === uuid);
+                            const uid = data.entities[i];
+                            const index = this.results.findIndex((m) => m.UID === uid);
+
                             if (index >= 0) {
                                 this.results.splice(index, 1);
                             }
+
+                            this.$clipboard.removeId(uid);
                         }
 
                         break;

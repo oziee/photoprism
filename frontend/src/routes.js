@@ -2,17 +2,15 @@ import Photos from "pages/photos.vue";
 import Albums from "pages/albums.vue";
 import AlbumPhotos from "pages/album/photos.vue";
 import Places from "pages/places.vue";
+import Files from "pages/library/files.vue";
 import Labels from "pages/labels.vue";
-import Events from "pages/events.vue";
 import People from "pages/people.vue";
 import Library from "pages/library.vue";
-import Share from "pages/share.vue";
 import Settings from "pages/settings.vue";
 import Login from "pages/login.vue";
 import Discover from "pages/discover.vue";
-import Todo from "pages/todo.vue";
 
-const c = window.clientConfig;
+const c = window.__CONFIG__;
 
 export default [
     {
@@ -30,19 +28,60 @@ export default [
         name: "photos",
         path: "/photos",
         component: Photos,
-        meta: {title: c.subtitle, auth: true},
+        meta: {title: c.siteCaption, auth: true},
+        props: {staticFilter: {photo: "true"}},
+    },
+    {
+        name: "moments",
+        path: "/moments",
+        component: Albums,
+        meta: {title: "Moments", auth: true},
+        props: {view: "moment", staticFilter: {type: "moment"}},
+    },
+    {
+        name: "moment",
+        path: "/moments/:uid/:slug",
+        component: AlbumPhotos,
+        meta: {title: "Moments", auth: true},
     },
     {
         name: "albums",
         path: "/albums",
         component: Albums,
         meta: {title: "Albums", auth: true},
+        props: {view: "album", staticFilter: {type: "album"}},
     },
     {
         name: "album",
-        path: "/albums/:uuid",
+        path: "/albums/:uid/:slug",
         component: AlbumPhotos,
         meta: {title: "Album", auth: true},
+    },
+    {
+        name: "calendar",
+        path: "/calendar",
+        component: Albums,
+        meta: {title: "Calendar", auth: true},
+        props: {view: "month", staticFilter: {type: "month"}},
+    },
+    {
+        name: "month",
+        path: "/calendar/:uid/:slug",
+        component: AlbumPhotos,
+        meta: {title: "Calendar", auth: true},
+    },
+    {
+        name: "folders",
+        path: "/folders",
+        component: Albums,
+        meta: {title: "Folders", auth: true},
+        props: {view: "folder", staticFilter: {type: "folder"}},
+    },
+    {
+        name: "folder",
+        path: "/folders/:uid:/:slug",
+        component: AlbumPhotos,
+        meta: {title: "Folders", auth: true},
     },
     {
         name: "favorites",
@@ -56,7 +95,7 @@ export default [
         path: "/videos",
         component: Photos,
         meta: {title: "Videos", auth: true},
-        props: {staticFilter: {video: true}},
+        props: {staticFilter: {video: "true"}},
     },
     {
         name: "review",
@@ -92,28 +131,35 @@ export default [
         meta: {title: "Places", auth: true},
     },
     {
+        name: "files",
+        path: "/library/files*",
+        component: Files,
+        meta: {title: "File Browser", auth: true},
+    },
+    {
+        name: "hidden",
+        path: "/library/hidden",
+        component: Photos,
+        props: {staticFilter: {hidden: true}},
+    },
+    {
         name: "labels",
         path: "/labels",
         component: Labels,
         meta: {title: "Labels", auth: true},
     },
     {
-        name: "events",
-        path: "/events",
-        component: Events,
-        meta: {title: "Events", auth: true},
+        name: "browse",
+        path: "/browse",
+        component: Photos,
+        meta: {title: "All photos and videos", auth: true},
+        props: {staticFilter: {quality: 0}},
     },
     {
         name: "people",
         path: "/people",
         component: People,
         meta: {title: "People", auth: true},
-    },
-    {
-        name: "filters",
-        path: "/filters",
-        component: Todo,
-        meta: {title: "Filters", auth: true},
     },
     {
         name: "library_logs",
@@ -126,21 +172,15 @@ export default [
         name: "library_import",
         path: "/library/import",
         component: Library,
-        meta: {title: "Import Photos", auth: true, background: "application-light"},
+        meta: {title: "Import", auth: true, background: "application-light"},
         props: {tab: 1},
     },
     {
         name: "library",
         path: "/library",
         component: Library,
-        meta: {title: "Photo Library", auth: true, background: "application-light"},
+        meta: {title: "Originals", auth: true, background: "application-light"},
         props: {tab: 0},
-    },
-    {
-        name: "share",
-        path: "/share",
-        component: Share,
-        meta: {title: "Share with friends", auth: true},
     },
     {
         name: "settings",

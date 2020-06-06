@@ -14,7 +14,7 @@
                             <v-checkbox
                                     @change="onChange"
                                     :disabled="busy"
-                                    class="ma-0 pa-0"
+                                    class="ma-0 pa-0 input-private"
                                     v-model="settings.features.private"
                                     color="secondary-dark"
                                     :label="labels.private"
@@ -29,7 +29,7 @@
                             <v-checkbox
                                     @change="onChange"
                                     :disabled="busy"
-                                    class="ma-0 pa-0"
+                                    class="ma-0 pa-0 input-review"
                                     v-model="settings.features.review"
                                     color="secondary-dark"
                                     :label="labels.review"
@@ -44,7 +44,7 @@
                             <v-checkbox
                                     @change="onChange"
                                     :disabled="busy || readonly"
-                                    class="ma-0 pa-0"
+                                    class="ma-0 pa-0 input-convert"
                                     v-model="settings.index.convert"
                                     color="secondary-dark"
                                     :label="labels.convert"
@@ -59,7 +59,7 @@
                             <v-checkbox
                                     @change="onChange"
                                     :disabled="busy"
-                                    class="ma-0 pa-0"
+                                    class="ma-0 pa-0 input-group"
                                     v-model="settings.index.group"
                                     color="secondary-dark"
                                     :label="labels.group"
@@ -90,6 +90,7 @@
                                     background-color="secondary-light"
                                     v-model="settings.theme"
                                     hide-details box
+                                    class="input-theme"
                             ></v-select>
                         </v-flex>
 
@@ -103,6 +104,7 @@
                                     background-color="secondary-light"
                                     v-model="settings.language"
                                     hide-details box
+                                    class="input-language"
                             ></v-select>
                         </v-flex>
                     </v-layout>
@@ -116,7 +118,7 @@
                             <v-checkbox
                                     @change="onChange"
                                     :disabled="busy || readonly"
-                                    class="ma-0 pa-0"
+                                    class="ma-0 pa-0 input-upload"
                                     v-model="settings.features.upload"
                                     color="secondary-dark"
                                     :label="labels.upload"
@@ -131,7 +133,7 @@
                             <v-checkbox
                                     @change="onChange"
                                     :disabled="busy"
-                                    class="ma-0 pa-0"
+                                    class="ma-0 pa-0 input-download"
                                     v-model="settings.features.download"
                                     color="secondary-dark"
                                     :label="labels.download"
@@ -146,7 +148,7 @@
                             <v-checkbox
                                     @change="onChange"
                                     :disabled="busy"
-                                    class="ma-0 pa-0"
+                                    class="ma-0 pa-0 input-share"
                                     v-model="settings.features.share"
                                     color="secondary-dark"
                                     :label="labels.share"
@@ -161,7 +163,7 @@
                             <v-checkbox
                                     @change="onChange"
                                     :disabled="busy || readonly"
-                                    class="ma-0 pa-0"
+                                    class="ma-0 pa-0 input-import"
                                     v-model="settings.features.import"
                                     color="secondary-dark"
                                     :label="labels.import"
@@ -176,7 +178,7 @@
                             <v-checkbox
                                     @change="onChange"
                                     :disabled="busy"
-                                    class="ma-0 pa-0"
+                                    class="ma-0 pa-0 input-archive"
                                     v-model="settings.features.archive"
                                     color="secondary-dark"
                                     :label="labels.archive"
@@ -191,7 +193,7 @@
                             <v-checkbox
                                     @change="onChange"
                                     :disabled="busy"
-                                    class="ma-0 pa-0"
+                                    class="ma-0 pa-0 input-edit"
                                     v-model="settings.features.edit"
                                     color="secondary-dark"
                                     :label="labels.edit"
@@ -206,7 +208,37 @@
                             <v-checkbox
                                     @change="onChange"
                                     :disabled="busy"
-                                    class="ma-0 pa-0"
+                                    class="ma-0 pa-0 input-files"
+                                    v-model="settings.features.files"
+                                    color="secondary-dark"
+                                    :label="labels.files"
+                                    :hint="hints.files"
+                                    prepend-icon="insert_drive_file"
+                                    persistent-hint
+                            >
+                            </v-checkbox>
+                        </v-flex>
+
+                        <v-flex xs12 sm6 lg3 class="px-2 pb-2 pt-2">
+                            <v-checkbox
+                                    @change="onChange"
+                                    :disabled="busy"
+                                    class="ma-0 pa-0 input-moments"
+                                    v-model="settings.features.moments"
+                                    color="secondary-dark"
+                                    :label="labels.moments"
+                                    :hint="hints.moments"
+                                    prepend-icon="star"
+                                    persistent-hint
+                            >
+                            </v-checkbox>
+                        </v-flex>
+
+                        <v-flex xs12 sm6 lg3 class="px-2 pb-2 pt-2">
+                            <v-checkbox
+                                    @change="onChange"
+                                    :disabled="busy"
+                                    class="ma-0 pa-0 input-labels"
                                     v-model="settings.features.labels"
                                     color="secondary-dark"
                                     :label="labels.labels"
@@ -221,7 +253,7 @@
                             <v-checkbox
                                     @change="onChange"
                                     :disabled="busy"
-                                    class="ma-0 pa-0"
+                                    class="ma-0 pa-0 input-logs"
                                     v-model="settings.features.logs"
                                     color="secondary-dark"
                                     :label="labels.logs"
@@ -236,7 +268,7 @@
                             <v-checkbox
                                     @change="onChange"
                                     :disabled="busy"
-                                    class="ma-0 pa-0"
+                                    class="ma-0 pa-0 input-places"
                                     v-model="settings.features.places"
                                     color="secondary-dark"
                                     :label="labels.places"
@@ -267,6 +299,7 @@
                                     background-color="secondary-light"
                                     v-model="settings.maps.style"
                                     hide-details box
+                                    class="input-style"
                             ></v-select>
                         </v-flex>
 
@@ -280,6 +313,7 @@
                                     background-color="secondary-light"
                                     v-model="settings.maps.animate"
                                     hide-details box
+                                    class="input-animate"
                             ></v-select>
                         </v-flex>
                     </v-layout>
@@ -290,15 +324,15 @@
                 <v-card-actions>
                     <v-layout wrap align-top>
                         <v-flex xs12 sm6 class="px-2 pb-2 body-1">
-                            PhotoPrism {{$config.get("version")}}
-                            <br>{{$config.get("copyright")}}
+                            PhotoPrism™ {{$config.get("version")}}
+                            <br>© 2018-2020 <a href="mailto:hello@photoprism.org" class="secondary-dark--text" target="_blank">PhotoPrism.org</a>
                         </v-flex>
 
                         <v-flex xs12 sm6 class="px-2 pb-2 body-1 text-xs-left text-sm-right">
                             A big <a href="https://docs.photoprism.org/en/latest/credits/" class="secondary-dark--text"
-                                                            target="_blank">thank you</a>to everyone who made this possible!
+                                                            target="_blank">thank you</a> to everyone who made this possible!
                             <br>
-                            <a href="https://app.fossa.com/attribution/d068c7e2-586d-421a-86a4-f23104a408f9"
+                            <a href="https://raw.githubusercontent.com/photoprism/photoprism/develop/NOTICE"
                                class="secondary-dark--text" target="_blank">
                                 3rd-party software packages</a>
                         </v-flex>
@@ -318,6 +352,7 @@
         data() {
             return {
                 readonly: this.$config.get("readonly"),
+                experimental: this.$config.get("experimental"),
                 settings: new Settings(this.$config.settings()),
                 options: options,
                 labels: {
@@ -333,6 +368,8 @@
                     private: this.$gettext("Hide Private"),
                     review: this.$gettext("Quality Filter"),
                     places: this.$gettext("Places"),
+                    files: this.$gettext("Files"),
+                    moments: this.$gettext("Moments"),
                     labels: this.$gettext("Labels"),
                     import: this.$gettext("Import"),
                     upload: this.$gettext("Upload"),
@@ -348,6 +385,8 @@
                     group: this.$gettext("Files with sequential names like 'IMG_1234 (2)' or 'IMG_1234 copy 2' belong to the same photo."),
                     move: this.$gettext("Move files from import to originals to save storage. Unsupported file types will never be deleted, they remain in their current location."),
                     places: this.$gettext("Search and display photos on a map."),
+                    files: this.$gettext("Browse indexed files in Library."),
+                    moments: this.$gettext("Let PhotoPrism create albums from past events."),
                     labels: this.$gettext("Browse and edit image classification labels."),
                     import: this.$gettext("Imported files will be sorted by date and given a unique name."),
                     archive: this.$gettext("Hide photos that have been moved to archive."),

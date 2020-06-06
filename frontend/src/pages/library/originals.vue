@@ -12,7 +12,7 @@
                 <v-autocomplete
                         @change="onChange"
                         color="secondary-dark"
-                        class="my-3"
+                        class="my-3 input-index-folder"
                         hide-details hide-no-data flat solo
                         v-model="settings.index.path"
                         browser-autocomplete="off"
@@ -49,7 +49,7 @@
                 <v-btn
                         :disabled="!busy"
                         color="secondary-dark"
-                        class="white--text ml-0 mt-2"
+                        class="white--text ml-0 mt-2 action-cancel"
                         depressed
                         @click.stop="cancelIndexing()"
                 >
@@ -59,7 +59,7 @@
                 <v-btn
                         :disabled="busy"
                         color="secondary-dark"
-                        class="white--text ml-0 mt-2"
+                        class="white--text ml-0 mt-2 action-index"
                         depressed
                         @click.stop="startIndexing()"
                 >
@@ -75,7 +75,8 @@
                         outline
                         v-if="config.count.hidden > 0"
                 >
-                    The index currently contains {{ config.count.hidden }} hidden files. Their format may not be supported,
+                    The index currently contains {{ config.count.hidden }} hidden files. Their format may not be
+                    supported,
                     they haven't been converted to JPEG yet or there are duplicates.
                 </v-alert>
             </v-container>
@@ -90,11 +91,12 @@
     import Event from "pubsub-js";
     import Settings from "model/settings";
     import Util from "common/util";
+    import { Folder, RootOriginals } from "model/folder";
 
     export default {
         name: 'p-tab-index',
         data() {
-            const root = {"name": "All originals", "path": "/"}
+            const root = {"path": "/", "name": this.$gettext("All originals")}
 
             return {
                 settings: new Settings(this.$config.settings()),
@@ -203,22 +205,23 @@
         created() {
             this.subscriptionId = Event.subscribe('index', this.handleEvent);
             this.loading = true;
-            Api.get('index').then((r) => {
-                const subDirs = r.data.dirs ? r.data.dirs : [];
+
+            Folder.findAll(RootOriginals).then((r) => {
+                const folders = r.models ? r.models : [];
                 const currentPath = this.settings.index.path;
                 let found = currentPath === this.root.path;
 
                 this.dirs = [this.root];
 
-                for (let i = 0; i < subDirs.length; i++) {
-                    if(currentPath === subDirs[i]) {
+                for (let i = 0; i < folders.length; i++) {
+                    if (currentPath === folders[i].Path) {
                         found = true;
                     }
 
-                    this.dirs.push({name: Util.truncate(subDirs[i], 100, "..."), path: subDirs[i]});
+                    this.dirs.push({path: folders[i].Path, name: "/" + Util.truncate(folders[i].Path, 100, "...")});
                 }
 
-                if(!found) {
+                if (!found) {
                     this.settings.index.path = this.root.path;
                 }
             }).finally(() => this.loading = false);

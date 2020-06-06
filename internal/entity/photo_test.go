@@ -1,11 +1,12 @@
 package entity
 
 import (
+	"testing"
+	"time"
+
 	"github.com/photoprism/photoprism/internal/classify"
 	"github.com/photoprism/photoprism/internal/form"
 	"github.com/stretchr/testify/assert"
-	"testing"
-	"time"
 )
 
 func TestSavePhotoForm(t *testing.T) {
@@ -19,7 +20,7 @@ func TestSavePhotoForm(t *testing.T) {
 			TitleSrc:         "manual",
 			PhotoFavorite:    true,
 			PhotoPrivate:     true,
-			PhotoVideo:       false,
+			PhotoType:        "image",
 			PhotoLat:         7.9999,
 			PhotoLng:         8.8888,
 			PhotoAltitude:    2,
@@ -28,21 +29,21 @@ func TestSavePhotoForm(t *testing.T) {
 			PhotoFNumber:     3.3,
 			PhotoExposure:    "exposure",
 			CameraID:         uint(3),
-			CameraSrc:        "exif",
+			CameraSrc:        "meta",
 			LensID:           uint(6),
 			LocationID:       "1234",
-			LocationSrc:      "manual",
+			LocSrc:           "manual",
 			PlaceID:          "765",
 			PhotoCountry:     "de",
-			Description: form.Description{
-				PhotoID:          uint(1000008),
-				PhotoDescription: "test",
-				PhotoKeywords:    "test cat dog",
-				PhotoSubject:     "animals",
-				PhotoArtist:      "Bender",
-				PhotoNotes:       "notes",
-				PhotoCopyright:   "copy",
-				PhotoLicense:     ""},
+			Details: form.Details{
+				PhotoID:   uint(1000008),
+				Keywords:  "test cat dog",
+				Subject:   "animals",
+				Artist:    "Bender",
+				Notes:     "notes",
+				Copyright: "copy",
+				License:   "",
+			},
 		}
 
 		m := PhotoFixtures["Photo08"]
@@ -61,25 +62,26 @@ func TestSavePhotoForm(t *testing.T) {
 		assert.Equal(t, "manual", m.TitleSrc)
 		assert.Equal(t, true, m.PhotoFavorite)
 		assert.Equal(t, true, m.PhotoPrivate)
-		assert.Equal(t, false, m.PhotoVideo)
+		assert.Equal(t, "image", m.PhotoType)
 		assert.Equal(t, float32(7.9999), m.PhotoLat)
 		assert.NotNil(t, m.EditedAt)
-		t.Log(m.Description.PhotoKeywords)
+		t.Log(m.Details.Keywords)
 	})
 }
 
 func TestPhoto_Save(t *testing.T) {
 	t.Run("new photo", func(t *testing.T) {
 		photo := Photo{
+			ID:               11111,
 			TakenAt:          time.Date(2008, 1, 1, 2, 0, 0, 0, time.UTC),
 			TakenAtLocal:     time.Date(2008, 1, 1, 2, 0, 0, 0, time.UTC),
-			TakenSrc:         "exif",
+			TakenSrc:         "meta",
 			TimeZone:         "UTC",
 			PhotoTitle:       "Black beach",
 			TitleSrc:         "manual",
 			PhotoFavorite:    false,
 			PhotoPrivate:     false,
-			PhotoVideo:       true,
+			PhotoType:        "video",
 			PhotoLat:         9.9999,
 			PhotoLng:         8.8888,
 			PhotoAltitude:    2,
@@ -88,18 +90,29 @@ func TestPhoto_Save(t *testing.T) {
 			PhotoFNumber:     3.3,
 			PhotoExposure:    "exposure",
 			CameraID:         uint(3),
-			CameraSrc:        "exif",
+			CameraSrc:        "meta",
 			LensID:           uint(6),
 			LocationID:       "1234",
-			LocationSrc:      "geo",
+			LocSrc:           "geo",
 			PlaceID:          "765",
-			PhotoCountry:     "de"}
+			PhotoCountry:     "de",
+			Keywords:         []Keyword{},
+			Details: Details{
+				PhotoID:   11111,
+				Keywords:  "test cat dog",
+				Subject:   "animals",
+				Artist:    "Bender",
+				Notes:     "notes",
+				Copyright: "copy",
+				License:   "",
+			},
+		}
 
 		err := photo.Save()
-		if err != nil {
-			t.Fatal(err)
-		}
+
+		assert.EqualError(t, err, "photo: can't save to database, id is empty")
 	})
+
 	t.Run("existing photo", func(t *testing.T) {
 		m := PhotoFixtures.Get("19800101_000002_D640C559")
 		err := m.Save()
@@ -111,7 +124,7 @@ func TestPhoto_Save(t *testing.T) {
 
 func TestPhoto_ClassifyLabels(t *testing.T) {
 	t.Run("new photo", func(t *testing.T) {
-		m := PhotoFixtures.Get("Photo01")
+		m := PhotoFixtures.Get("Photo19")
 		Db().Set("gorm:auto_preload", true).Model(&m).Related(&m.Labels)
 		labels := m.ClassifyLabels()
 		assert.Empty(t, labels)
@@ -169,11 +182,13 @@ func TestPhoto_PreloadMany(t *testing.T) {
 func TestPhoto_NoLocation(t *testing.T) {
 	t.Run("true", func(t *testing.T) {
 		m := PhotoFixtures.Get("Photo01")
-		assert.True(t, m.NoLocation())
+		assert.True(t, m.UnknownLocation())
 	})
 	t.Run("false", func(t *testing.T) {
 		m := PhotoFixtures.Get("Photo08")
-		assert.False(t, m.NoLocation())
+		// t.Logf("MODEL: %+v", m)
+		assert.True(t, m.HasLocation())
+		assert.False(t, m.UnknownLocation())
 	})
 }
 
@@ -213,11 +228,11 @@ func TestPhoto_NoLatLng(t *testing.T) {
 func TestPhoto_NoPlace(t *testing.T) {
 	t.Run("true", func(t *testing.T) {
 		m := PhotoFixtures.Get("Photo01")
-		assert.True(t, m.NoPlace())
+		assert.True(t, m.UnknownPlace())
 	})
 	t.Run("false", func(t *testing.T) {
 		m := PhotoFixtures.Get("Photo08")
-		assert.False(t, m.NoPlace())
+		assert.False(t, m.UnknownPlace())
 	})
 }
 
@@ -265,14 +280,22 @@ func TestPhoto_NoCameraSerial(t *testing.T) {
 	})
 }
 
-func TestPhoto_DescriptionLoaded(t *testing.T) {
+func TestPhoto_DetailsLoaded(t *testing.T) {
 	t.Run("true", func(t *testing.T) {
 		m := PhotoFixtures.Get("19800101_000002_D640C559")
-		assert.True(t, m.DescriptionLoaded())
+		assert.True(t, m.DetailsLoaded())
 	})
 	t.Run("false", func(t *testing.T) {
-		m := PhotoFixtures.Get("Photo05")
-		assert.False(t, m.DescriptionLoaded())
+		m := PhotoFixtures.Get("Photo12")
+		assert.False(t, m.DetailsLoaded())
+	})
+}
+
+func TestPhoto_TitleFromFileName(t *testing.T) {
+	t.Run("changing-of-the-guard--buckingham-palace_7925318070_o.jpg", func(t *testing.T) {
+		photo := Photo{PhotoName: "20200102_194030_9EFA9E5E", PhotoPath: "2000/05", OriginalName: "flickr import/changing-of-the-guard--buckingham-palace_7925318070_o.jpg"}
+		result := photo.TitleFromFileName()
+		assert.Equal(t, "Changing of the Guard / Buckingham Palace", result)
 	})
 }
 
@@ -286,7 +309,6 @@ func TestPhoto_UpdateTitle(t *testing.T) {
 			t.Fatal()
 		}
 		assert.Equal(t, "Black beach", m.PhotoTitle)
-		assert.Equal(t, "photo: won't update title, was modified", err.Error())
 	})
 	t.Run("photo with location without city and label", func(t *testing.T) {
 		m := PhotoFixtures.Get("Photo10")
@@ -391,7 +413,7 @@ func TestPhoto_UpdateTitle(t *testing.T) {
 		assert.Equal(t, "Unknown / 2008", m.PhotoTitle)
 	})
 	t.Run("no location no labels no takenAt", func(t *testing.T) {
-		m := PhotoFixtures.Get("Photo03")
+		m := PhotoFixtures.Get("Photo19")
 		classifyLabels := &classify.Labels{}
 		assert.Equal(t, "", m.PhotoTitle)
 		err := m.UpdateTitle(*classifyLabels)
@@ -447,21 +469,21 @@ func TestPhoto_SetTitle(t *testing.T) {
 func TestPhoto_SetDescription(t *testing.T) {
 	t.Run("empty description", func(t *testing.T) {
 		m := PhotoFixtures.Get("Photo15")
-		assert.Equal(t, "photo description blacklist", m.Description.PhotoDescription)
+		assert.Equal(t, "photo description blacklist", m.PhotoDescription)
 		m.SetDescription("", "manual")
-		assert.Equal(t, "photo description blacklist", m.Description.PhotoDescription)
+		assert.Equal(t, "photo description blacklist", m.PhotoDescription)
 	})
 	t.Run("description not from the same source", func(t *testing.T) {
 		m := PhotoFixtures.Get("Photo15")
-		assert.Equal(t, "photo description blacklist", m.Description.PhotoDescription)
+		assert.Equal(t, "photo description blacklist", m.PhotoDescription)
 		m.SetDescription("new photo description", "image")
-		assert.Equal(t, "photo description blacklist", m.Description.PhotoDescription)
+		assert.Equal(t, "photo description blacklist", m.PhotoDescription)
 	})
 	t.Run("success", func(t *testing.T) {
 		m := PhotoFixtures.Get("Photo15")
-		assert.Equal(t, "photo description blacklist", m.Description.PhotoDescription)
+		assert.Equal(t, "photo description blacklist", m.PhotoDescription)
 		m.SetDescription("new photo description", "manual")
-		assert.Equal(t, "new photo description", m.Description.PhotoDescription)
+		assert.Equal(t, "new photo description", m.PhotoDescription)
 	})
 }
 

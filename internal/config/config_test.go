@@ -66,7 +66,7 @@ func TestConfig_TensorFlowDisabled(t *testing.T) {
 	ctx := CliTestContext()
 	c := NewConfig(ctx)
 
-	version := c.DisableTensorFlow()
+	version := c.TensorFlowOff()
 	assert.Equal(t, false, version)
 }
 
@@ -82,32 +82,28 @@ func TestConfig_ConfigFile(t *testing.T) {
 	ctx := CliTestContext()
 	c := NewConfig(ctx)
 
-	configFile := c.ConfigFile()
-	assert.Equal(t, "", configFile)
+	assert.Contains(t, c.ConfigFile(), "/storage/testdata/settings/photoprism.yml")
 }
 
-func TestConfig_ConfigPath(t *testing.T) {
+func TestConfig_SettingsPath(t *testing.T) {
 	ctx := CliTestContext()
 	c := NewConfig(ctx)
 
-	configPath := c.ConfigPath()
-	assert.Equal(t, "/go/src/github.com/photoprism/photoprism/assets/config", configPath)
+	assert.Contains(t, c.SettingsPath(), "/storage/testdata/settings")
 }
 
 func TestConfig_PIDFilename(t *testing.T) {
 	ctx := CliTestContext()
 	c := NewConfig(ctx)
 
-	filename := c.PIDFilename()
-	assert.Equal(t, "/go/src/github.com/photoprism/photoprism/assets/photoprism.pid", filename)
+	assert.Contains(t, c.PIDFilename(), "/storage/testdata/photoprism.pid")
 }
 
 func TestConfig_LogFilename(t *testing.T) {
 	ctx := CliTestContext()
 	c := NewConfig(ctx)
 
-	filename := c.LogFilename()
-	assert.Equal(t, "/go/src/github.com/photoprism/photoprism/assets/photoprism.log", filename)
+	assert.Contains(t, c.LogFilename(), "/storage/testdata/photoprism.log")
 }
 
 func TestConfig_DetachServer(t *testing.T) {
@@ -116,38 +112,6 @@ func TestConfig_DetachServer(t *testing.T) {
 
 	detachServer := c.DetachServer()
 	assert.Equal(t, false, detachServer)
-}
-
-func TestConfig_TidbServerHost(t *testing.T) {
-	ctx := CliTestContext()
-	c := NewConfig(ctx)
-
-	host := c.TidbServerHost()
-	assert.Equal(t, "127.0.0.1", host)
-}
-
-func TestConfig_TidbServerPort(t *testing.T) {
-	ctx := CliTestContext()
-	c := NewConfig(ctx)
-
-	port := c.TidbServerPort()
-	assert.Equal(t, uint(2343), port)
-}
-
-func TestConfig_TidbServerPath(t *testing.T) {
-	ctx := CliTestContext()
-	c := NewConfig(ctx)
-
-	path := c.TidbServerPath()
-	assert.Equal(t, "/go/src/github.com/photoprism/photoprism/assets/resources/database", path)
-}
-
-func TestConfig_TidbServerPassword(t *testing.T) {
-	ctx := CliTestContext()
-	c := NewConfig(ctx)
-
-	password := c.TidbServerPassword()
-	assert.Equal(t, "", password)
 }
 
 func TestConfig_HttpServerHost(t *testing.T) {
@@ -188,7 +152,7 @@ func TestConfig_OriginalsPath(t *testing.T) {
 
 	result := c.OriginalsPath()
 	assert.True(t, strings.HasPrefix(result, "/"))
-	assert.True(t, strings.HasSuffix(result, "assets/testdata/originals"))
+	assert.True(t, strings.HasSuffix(result, "/storage/testdata/originals"))
 }
 
 func TestConfig_ImportPath(t *testing.T) {
@@ -197,7 +161,7 @@ func TestConfig_ImportPath(t *testing.T) {
 
 	result := c.ImportPath()
 	assert.True(t, strings.HasPrefix(result, "/"))
-	assert.True(t, strings.HasSuffix(result, "assets/testdata/import"))
+	assert.True(t, strings.HasSuffix(result, "/storage/testdata/import"))
 }
 
 func TestConfig_SipsBin(t *testing.T) {
@@ -237,7 +201,7 @@ func TestConfig_DatabaseDriver(t *testing.T) {
 	c := NewConfig(ctx)
 
 	driver := c.DatabaseDriver()
-	assert.Equal(t, DriverTidb, driver)
+	assert.Equal(t, SQLite, driver)
 }
 
 func TestConfig_DatabaseDsn(t *testing.T) {
@@ -245,14 +209,14 @@ func TestConfig_DatabaseDsn(t *testing.T) {
 	c := NewConfig(ctx)
 
 	dsn := c.DatabaseDriver()
-	assert.Equal(t, DriverTidb, dsn)
+	assert.Equal(t, SQLite, dsn)
 }
 
 func TestConfig_CachePath(t *testing.T) {
 	ctx := CliTestContext()
 	c := NewConfig(ctx)
 
-	assert.True(t, strings.HasSuffix(c.CachePath(), "assets/testdata/cache"))
+	assert.True(t, strings.HasSuffix(c.CachePath(), "storage/testdata/cache"))
 }
 
 func TestConfig_ThumbnailsPath(t *testing.T) {
@@ -260,23 +224,14 @@ func TestConfig_ThumbnailsPath(t *testing.T) {
 	c := NewConfig(ctx)
 
 	assert.True(t, strings.HasPrefix(c.ThumbPath(), "/"))
-	assert.True(t, strings.HasSuffix(c.ThumbPath(), "assets/testdata/cache/thumbnails"))
+	assert.True(t, strings.HasSuffix(c.ThumbPath(), "storage/testdata/cache/thumbnails"))
 }
 
 func TestConfig_AssetsPath(t *testing.T) {
 	ctx := CliTestContext()
 	c := NewConfig(ctx)
 
-	path := c.AssetsPath()
-	assert.Equal(t, "/go/src/github.com/photoprism/photoprism/assets", path)
-}
-
-func TestConfig_ResourcesPath(t *testing.T) {
-	ctx := CliTestContext()
-	c := NewConfig(ctx)
-
-	path := c.ResourcesPath()
-	assert.Equal(t, "/go/src/github.com/photoprism/photoprism/assets/resources", path)
+	assert.True(t, strings.HasSuffix(c.AssetsPath(), "/assets"))
 }
 
 func TestConfig_DetectNSFW(t *testing.T) {
@@ -299,8 +254,7 @@ func TestConfig_NSFWModelPath(t *testing.T) {
 	ctx := CliTestContext()
 	c := NewConfig(ctx)
 
-	result := c.NSFWModelPath()
-	assert.Equal(t, "/go/src/github.com/photoprism/photoprism/assets/resources/nsfw", result)
+	assert.Contains(t, c.NSFWModelPath(), "/assets/nsfw")
 }
 
 func TestConfig_ExamplesPath(t *testing.T) {
@@ -308,7 +262,7 @@ func TestConfig_ExamplesPath(t *testing.T) {
 	c := NewConfig(ctx)
 
 	path := c.ExamplesPath()
-	assert.Equal(t, "/go/src/github.com/photoprism/photoprism/assets/resources/examples", path)
+	assert.Equal(t, "/go/src/github.com/photoprism/photoprism/assets/examples", path)
 }
 
 func TestConfig_TensorFlowModelPath(t *testing.T) {
@@ -316,56 +270,55 @@ func TestConfig_TensorFlowModelPath(t *testing.T) {
 	c := NewConfig(ctx)
 
 	path := c.TensorFlowModelPath()
-	assert.Equal(t, "/go/src/github.com/photoprism/photoprism/assets/resources/nasnet", path)
+	assert.Equal(t, "/go/src/github.com/photoprism/photoprism/assets/nasnet", path)
 }
 
 func TestConfig_HttpTemplatesPath(t *testing.T) {
 	ctx := CliTestContext()
 	c := NewConfig(ctx)
 
-	path := c.HttpTemplatesPath()
-	assert.Equal(t, "/go/src/github.com/photoprism/photoprism/assets/resources/templates", path)
+	path := c.TemplatesPath()
+	assert.Equal(t, "/go/src/github.com/photoprism/photoprism/assets/templates", path)
 }
 
 func TestConfig_HttpFaviconsPath(t *testing.T) {
 	ctx := CliTestContext()
 	c := NewConfig(ctx)
 
-	path := c.HttpFaviconsPath()
-	assert.Equal(t, "/go/src/github.com/photoprism/photoprism/assets/resources/static/favicons", path)
+	path := c.FaviconsPath()
+	assert.Equal(t, "/go/src/github.com/photoprism/photoprism/assets/static/favicons", path)
 }
 
 func TestConfig_HttpStaticPath(t *testing.T) {
 	ctx := CliTestContext()
 	c := NewConfig(ctx)
 
-	path := c.HttpStaticPath()
-	assert.Equal(t, "/go/src/github.com/photoprism/photoprism/assets/resources/static", path)
+	path := c.StaticPath()
+	assert.Equal(t, "/go/src/github.com/photoprism/photoprism/assets/static", path)
 }
 
 func TestConfig_HttpStaticBuildPath(t *testing.T) {
 	ctx := CliTestContext()
 	c := NewConfig(ctx)
 
-	path := c.HttpStaticBuildPath()
-	assert.Equal(t, "/go/src/github.com/photoprism/photoprism/assets/resources/static/build", path)
+	path := c.StaticBuildPath()
+	assert.Equal(t, "/go/src/github.com/photoprism/photoprism/assets/static/build", path)
 }
 
 func TestConfig_ClientConfig(t *testing.T) {
 	c := TestConfig()
 
 	cc := c.ClientConfig()
-	assert.NotEmpty(t, cc)
-	assert.Contains(t, cc, "name")
-	assert.Contains(t, cc, "version")
-	assert.Contains(t, cc, "copyright")
-	assert.Contains(t, cc, "debug")
-	assert.Contains(t, cc, "readonly")
-	assert.Contains(t, cc, "cameras")
-	assert.Contains(t, cc, "countries")
-	assert.Contains(t, cc, "thumbnails")
-	assert.Contains(t, cc, "jsHash")
-	assert.Contains(t, cc, "cssHash")
+
+	assert.IsType(t, ClientConfig{}, cc)
+	assert.NotEmpty(t, cc.Name)
+	assert.NotEmpty(t, cc.Version)
+	assert.NotEmpty(t, cc.Copyright)
+	assert.NotEmpty(t, cc.Thumbnails)
+	assert.NotEmpty(t, cc.JSHash)
+	assert.NotEmpty(t, cc.CSSHash)
+	assert.Equal(t, true, cc.Debug)
+	assert.Equal(t, false, cc.ReadOnly)
 }
 
 func TestConfig_Workers(t *testing.T) {

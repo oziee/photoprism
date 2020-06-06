@@ -21,6 +21,7 @@ import VueLuxon from "vue-luxon";
 import VueFilters from "vue2-filters";
 import VueFullscreen from "vue-fullscreen";
 import VueInfiniteScroll from "vue-infinite-scroll";
+import VueModal from "vue-js-modal";
 import Hls from "hls.js";
 
 // Initialize helpers
@@ -59,6 +60,7 @@ Vue.use(GetTextPlugin, {
 Vue.use(VueLuxon);
 Vue.use(VueInfiniteScroll);
 Vue.use(VueFullscreen);
+Vue.use(VueModal, { dynamic: true, dynamicDefaults: { clickToClose: true } });
 Vue.use(VueFilters);
 Vue.use(Components);
 Vue.use(Dialogs);
@@ -98,10 +100,10 @@ router.beforeEach((to, from, next) => {
 router.afterEach((to) => {
     if (to.meta.title) {
         config.page.title = to.meta.title;
-        window.document.title = "PhotoPrism: " + to.meta.title;
+        window.document.title = config.values.siteTitle + ": " + to.meta.title;
     } else {
         config.page.title = "";
-        window.document.title = "PhotoPrism";
+        window.document.title = config.values.siteTitle + ": " + config.values.siteCaption;
     }
 });
 

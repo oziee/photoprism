@@ -41,16 +41,18 @@ func CreateZip(router *gin.RouterGroup, conf *config.Config) {
 			return
 		}
 
-		if len(f.Photos) == 0 {
-			log.Error("no photos selected")
-			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": txt.UcFirst("no photos selected")})
+		if f.Empty() {
+			c.AbortWithStatusJSON(400, gin.H{"error": txt.UcFirst("no items selected")})
 			return
 		}
 
-		files, err := query.FilesByUUID(f.Photos, 1000, 0)
+		files, err := query.FileSelection(f)
 
 		if err != nil {
-			c.AbortWithStatusJSON(404, gin.H{"error": err.Error()})
+			c.AbortWithStatusJSON(400, gin.H{"error": err.Error()})
+			return
+		} else if len(files) == 0 {
+			c.AbortWithStatusJSON(404, gin.H{"error": txt.UcFirst("no files available for download")})
 			return
 		}
 
@@ -91,9 +93,8 @@ func CreateZip(router *gin.RouterGroup, conf *config.Config) {
 				}
 				log.Infof("zip: added %s as %s", txt.Quote(f.FileName), txt.Quote(fileAlias))
 			} else {
-				log.Warnf("zip: %s is missing", txt.Quote(f.FileName))
-				f.FileMissing = true
-				conf.Db().Save(&f)
+				log.Warnf("zip: file %s is missing", txt.Quote(f.FileName))
+				logError("zip", f.Update("FileMissing", true))
 			}
 		}
 
@@ -108,6 +109,11 @@ func CreateZip(router *gin.RouterGroup, conf *config.Config) {
 // GET /api/v1/zip/:filename
 func DownloadZip(router *gin.RouterGroup, conf *config.Config) {
 	router.GET("/zip/:filename", func(c *gin.Context) {
+		if InvalidDownloadToken(c, conf) {
+			c.Data(http.StatusForbidden, "image/svg+xml", brokenIconSvg)
+			return
+		}
+
 		zipBaseName := filepath.Base(c.Param("filename"))
 		zipPath := path.Join(conf.TempPath(), "zip")
 		zipFileName := path.Join(zipPath, zipBaseName)

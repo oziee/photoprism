@@ -54,7 +54,7 @@ func (ind *Index) thumbPath() string {
 
 // Cancel stops the current indexing operation.
 func (ind *Index) Cancel() {
-	mutex.Worker.Cancel()
+	mutex.MainWorker.Cancel()
 }
 
 // Start indexes media files in the originals directory.
@@ -68,12 +68,18 @@ func (ind *Index) Start(opt IndexOptions) map[string]bool {
 		return done
 	}
 
-	if err := mutex.Worker.Start(); err != nil {
+	if err := mutex.MainWorker.Start(); err != nil {
 		event.Error(fmt.Sprintf("index: %s", err.Error()))
 		return done
 	}
 
-	defer mutex.Worker.Stop()
+	defer func() {
+		mutex.MainWorker.Stop()
+
+		if err := recover(); err != nil {
+			log.Errorf("index: %s [panic]", err)
+		}
+	}()
 
 	if err := ind.tensorFlow.Init(); err != nil {
 		log.Errorf("index: %s", err.Error())
@@ -94,7 +100,7 @@ func (ind *Index) Start(opt IndexOptions) map[string]bool {
 		}()
 	}
 
-	ignore := fs.NewIgnoreList(IgnoreFile, true, false)
+	ignore := fs.NewIgnoreList(fs.IgnoreFile, true, false)
 
 	if err := ignore.Dir(originalsPath); err != nil {
 		log.Infof("index: %s", err)
@@ -106,13 +112,7 @@ func (ind *Index) Start(opt IndexOptions) map[string]bool {
 
 	err := godirwalk.Walk(optionsPath, &godirwalk.Options{
 		Callback: func(fileName string, info *godirwalk.Dirent) error {
-			defer func() {
-				if err := recover(); err != nil {
-					log.Errorf("index: %s [panic]", err)
-				}
-			}()
-
-			if mutex.Worker.Canceled() {
+			if mutex.MainWorker.Canceled() {
 				return errors.New("indexing canceled")
 			}
 
@@ -120,6 +120,14 @@ func (ind *Index) Start(opt IndexOptions) map[string]bool {
 			isSymlink := info.IsSymlink()
 
 			if skip, result := fs.SkipWalk(fileName, isDir, isSymlink, done, ignore); skip {
+				if isDir && result != filepath.SkipDir {
+					folder := entity.NewFolder(entity.RootDefault, fs.RelativeName(fileName, originalsPath), nil)
+
+					if err := folder.Create(); err == nil {
+						log.Infof("index: added folder /%s", folder.Path)
+					}
+				}
+
 				return result
 			}
 

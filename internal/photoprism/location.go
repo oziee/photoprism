@@ -1,8 +1,9 @@
 package photoprism
 
 import (
+	"errors"
+
 	"github.com/photoprism/photoprism/internal/entity"
-	"github.com/pkg/errors"
 )
 
 // Location returns the Location of a MediaFile.
@@ -11,11 +12,7 @@ func (m *MediaFile) Location() (*entity.Location, error) {
 		return m.location, nil
 	}
 
-	data, err := m.MetaData()
-
-	if err != nil {
-		return nil, err
-	}
+	data := m.MetaData()
 
 	if data.Lat == 0 && data.Lng == 0 {
 		return nil, errors.New("mediafile: no latitude and longitude in metadata")

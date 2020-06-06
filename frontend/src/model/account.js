@@ -1,7 +1,7 @@
 import RestModel from "model/rest";
 import Api from "../common/api";
 
-class Account extends RestModel {
+export class Account extends RestModel {
     getDefaults() {
         return {
             ID: 0,
@@ -46,8 +46,8 @@ class Account extends RestModel {
         return Api.get(this.getEntityResource() + "/dirs").then((response) => Promise.resolve(response.data));
     }
 
-    Share(UUIDs, dest) {
-        const values = {Photos: UUIDs, Destination: dest};
+    Share(photos, dest) {
+        const values = {Photos: photos, Destination: dest};
 
         return Api.post(this.getEntityResource() + "/share", values).then((response) => Promise.resolve(response.data));
     }

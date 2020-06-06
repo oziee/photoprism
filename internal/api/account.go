@@ -32,7 +32,7 @@ func GetAccounts(router *gin.RouterGroup, conf *config.Config) {
 			return
 		}
 
-		result, err := query.Accounts(f)
+		result, err := query.AccountSearch(f)
 
 		if err != nil {
 			c.AbortWithStatusJSON(400, gin.H{"error": txt.UcFirst(err.Error())})
@@ -128,7 +128,7 @@ func ShareWithAccount(router *gin.RouterGroup, conf *config.Config) {
 		}
 
 		dst := f.Destination
-		files, err := query.FilesByUUID(f.Photos, 1000, 0)
+		files, err := query.FilesByUID(f.Photos, 1000, 0)
 
 		if err != nil {
 			c.AbortWithStatusJSON(404, gin.H{"error": err.Error()})
@@ -139,7 +139,7 @@ func ShareWithAccount(router *gin.RouterGroup, conf *config.Config) {
 			dstFileName := dst + "/" + file.ShareFileName()
 
 			fileShare := entity.NewFileShare(file.ID, m.ID, dstFileName)
-			fileShare.FirstOrCreate()
+			entity.FirstOrCreateFileShare(fileShare)
 		}
 
 		workers.StartShare(conf)
@@ -222,7 +222,7 @@ func UpdateAccount(router *gin.RouterGroup, conf *config.Config) {
 		}
 
 		// 3) Save model with values from form
-		if err := m.Save(f); err != nil {
+		if err := m.SaveForm(f); err != nil {
 			log.Error(err)
 			c.AbortWithStatusJSON(http.StatusInternalServerError, ErrSaveFailed)
 			return

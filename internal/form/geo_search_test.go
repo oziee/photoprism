@@ -5,8 +5,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-
-	log "github.com/sirupsen/logrus"
 )
 
 func TestGeoSearch(t *testing.T) {
@@ -21,7 +19,7 @@ func TestGeoSearch(t *testing.T) {
 
 		log.Debugf("%+v\n", form)
 
-		assert.Equal(t, "foobar baz", form.Query)
+		assert.Equal(t, "fooBar baz", form.Query)
 		assert.Equal(t, time.Date(2019, 01, 15, 0, 0, 0, 0, time.UTC), form.Before)
 		assert.Equal(t, uint(0x61a8), form.Dist)
 		assert.Equal(t, float32(33.45343), form.Lat)

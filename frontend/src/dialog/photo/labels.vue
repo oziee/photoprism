@@ -13,20 +13,21 @@
             <template v-slot:items="props" class="p-file">
                 <td>
                     <v-edit-dialog
-                            :return-value.sync="props.item.Label.LabelName"
+                            :return-value.sync="props.item.Label.Name"
                             lazy
                             @save="renameLabel(props.item.Label)"
                             class="p-inline-edit"
                     >
-                        {{ props.item.Label.LabelName | capitalize }}
+                        {{ props.item.Label.Name | capitalize }}
                         <template v-slot:input>
                             <v-text-field
-                                    v-model="props.item.Label.LabelName"
+                                    v-model="props.item.Label.Name"
                                     :rules="[nameRule]"
                                     :label="labels.name"
                                     color="secondary-dark"
                                     single-line
                                     autofocus
+                                    class="input-rename"
                             ></v-text-field>
                         </template>
                     </v-edit-dialog>
@@ -41,12 +42,12 @@
                     </v-btn>
                     <v-btn v-else-if="props.item.Uncertainty < 100 && props.item.LabelSrc === 'manual'" icon
                            small flat :ripple="false"
-                           class="action-off" title="Delete"
+                           class="action-delete" title="Delete"
                            @click.stop.prevent="removeLabel(props.item.Label)">
                         <v-icon color="secondary-dark">delete</v-icon>
                     </v-btn>
                     <v-btn v-else-if="props.item.Uncertainty < 100" icon small flat :ripple="false"
-                           class="action-off" title="Remove"
+                           class="action-remove" title="Remove"
                            @click.stop.prevent="removeLabel(props.item.Label)">
                         <v-icon color="secondary-dark">remove</v-icon>
                     </v-btn>
@@ -69,13 +70,14 @@
                             flat solo hide-details
                             autofocus
                             @keyup.enter.native="addLabel"
+                            class="input-label"
                     ></v-text-field>
                 </td>
                 <td class="text-xs-left">manual</td>
                 <td class="text-xs-center">100%</td>
                 <td class="text-xs-center">
                     <v-btn icon small flat :ripple="false" title="Add"
-                           class="p-photo-label-remove"
+                           class="p-photo-label-add"
                            @click.stop.prevent="addLabel">
                         <v-icon color="secondary-dark">add</v-icon>
                     </v-btn>
@@ -123,7 +125,7 @@
                     return
                 }
 
-                const name = label.LabelName;
+                const name = label.Name;
 
                 this.model.removeLabel(label.ID).then((m) => {
                     this.$notify.success("removed " + name);
@@ -152,10 +154,10 @@
                     return
                 }
 
-                this.model.renameLabel(label.ID, label.LabelName);
+                this.model.renameLabel(label.ID, label.Name);
             },
             searchLabel(label) {
-                this.$router.push({name: 'photos', query: {q: 'label:' + label.LabelSlug}}).catch(err => {
+                this.$router.push({name: 'photos', query: {q: 'label:' + label.Slug}}).catch(err => {
                 });
                 this.$emit('close');
             },

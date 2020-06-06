@@ -9,7 +9,7 @@
             <v-spacer></v-spacer>
 
             <v-toolbar-items>
-                <v-btn icon @click.stop="upload.dialog = true" v-if="!readonly && $config.feature('upload')">
+                <v-btn icon class="action-upload" @click.stop="upload.dialog = true" v-if="!readonly && $config.feature('upload')">
                     <v-icon>cloud_upload</v-icon>
                 </v-btn>
             </v-toolbar-items>
@@ -25,7 +25,7 @@
             <v-toolbar flat>
                 <v-list class="navigation-home">
                     <v-list-tile class="p-navigation-logo">
-                        <v-list-tile-avatar class="p-pointer" @click.stop.prevent="openDocs">
+                        <v-list-tile-avatar class="clickable" @click.stop.prevent="openDocs">
                             <img src="/static/img/logo.png" alt="Logo">
                         </v-list-tile-avatar>
                         <v-list-tile-content>
@@ -55,7 +55,7 @@
                     </v-list-tile-action>
 
                     <v-list-tile-content>
-                        <v-list-tile-title>{{ $gettext('Photos') }}</v-list-tile-title>
+                        <v-list-tile-title><translate key="Photos">Photos</translate></v-list-tile-title>
                     </v-list-tile-content>
                 </v-list-tile>
 
@@ -63,7 +63,7 @@
                     <v-list-tile slot="activator" to="/photos" @click.stop="" class="p-navigation-photos">
                         <v-list-tile-content>
                             <v-list-tile-title>
-                                <span>{{ $gettext('Photos') }}</span>
+                                <translate key="Photos">Photos</translate>
                                 <span v-if="config.count.photos > 0" class="p-navigation-count">{{ config.count.photos }}</span>
                             </v-list-tile-title>
                         </v-list-tile-content>
@@ -71,19 +71,22 @@
 
                     <v-list-tile :to="{name: 'photos', query: { q: 'mono:true quality:3 photo:true' }}" :exact="true" @click="">
                         <v-list-tile-content>
-                            <v-list-tile-title>{{ $gettext('Monochrome') }}</v-list-tile-title>
+                            <v-list-tile-title><translate key="Monochrome">Monochrome</translate></v-list-tile-title>
                         </v-list-tile-content>
                     </v-list-tile>
 
-                    <v-list-tile to="/review" @click="" v-if="$config.feature('review')">
+                    <v-list-tile to="/review" @click="" v-if="$config.feature('review') && config.count.review > 0" class="p-navigation-review">
                         <v-list-tile-content>
-                            <v-list-tile-title>{{ $gettext('Review') }}</v-list-tile-title>
+                            <v-list-tile-title>
+                                <translate key="Review">Review</translate>
+                                <span v-show="config.count.review > 0" class="p-navigation-count">{{ config.count.review }}</span>
+                            </v-list-tile-title>
                         </v-list-tile-content>
                     </v-list-tile>
 
                     <v-list-tile to="/archive" @click="" class="p-navigation-archive" v-show="$config.feature('archive')">
                         <v-list-tile-content>
-                            <v-list-tile-title>{{ $gettext('Archive') }}</v-list-tile-title>
+                            <v-list-tile-title><translate key="Archive">Archive</translate></v-list-tile-title>
                         </v-list-tile-content>
                     </v-list-tile>
                 </v-list-group>
@@ -95,7 +98,7 @@
 
                     <v-list-tile-content>
                         <v-list-tile-title>
-                            <span>{{ $gettext('Favorites') }}</span>
+                            <translate key="Favorites">Favorites</translate>
                             <span v-show="config.count.favorites > 0" class="p-navigation-count">{{ config.count.favorites }}</span>
                         </v-list-tile-title>
                     </v-list-tile-content>
@@ -108,7 +111,7 @@
 
                     <v-list-tile-content>
                         <v-list-tile-title>
-                            <span>{{ $gettext('Private') }}</span>
+                            <translate key="Private">Private</translate>
                             <span v-show="config.count.private > 0" class="p-navigation-count">{{ config.count.private }}</span>
                         </v-list-tile-title>
                     </v-list-tile-content>
@@ -121,57 +124,81 @@
 
                     <v-list-tile-content>
                         <v-list-tile-title>
-                            <span>{{ $gettext('Videos') }}</span>
+                            <translate key="Videos">Videos</translate>
                             <span v-show="config.count.videos > 0" class="p-navigation-count">{{ config.count.videos }}</span>
                         </v-list-tile-title>
                     </v-list-tile-content>
                 </v-list-tile>
 
-                <v-list-tile v-if="mini" to="/albums" @click="">
+                <v-list-tile v-if="mini" to="/albums" @click="" class="p-navigation-albums">
                     <v-list-tile-action>
                         <v-icon>folder</v-icon>
                     </v-list-tile-action>
 
                     <v-list-tile-content>
                         <v-list-tile-title>
-                            <span>{{ $gettext('Albums') }}</span>
+                            <translate key="Albums">Albums</translate>
                         </v-list-tile-title>
                     </v-list-tile-content>
                 </v-list-tile>
 
-                <v-list-group v-if="!mini" prepend-icon="folder" no-action :append-icon="albumExpandIcon">
-                    <v-list-tile slot="activator" to="/albums" @click.stop="">
+                <v-list-group v-if="!mini" prepend-icon="folder" no-action>
+                    <v-list-tile slot="activator" to="/albums" @click.stop="" class="p-navigation-albums">
                         <v-list-tile-content>
                             <v-list-tile-title>
-                                <span>{{ $gettext('Albums') }}</span>
+                                <translate key="Albums">Albums</translate>
                                 <span v-if="config.count.albums > 0" class="p-navigation-count">{{ config.count.albums }}</span>
                             </v-list-tile-title>
                         </v-list-tile-content>
                     </v-list-tile>
 
-                    <v-list-tile v-for="(album, index) in config.albums"
-                                 :key="index"
-                                 :to="{ name: 'album', params: { uuid: album.AlbumUUID, slug: album.AlbumSlug } }">
+                    <v-list-tile to="/folders" class="p-navigation-folders">
                         <v-list-tile-content>
-                            <v-list-tile-title v-if="album.AlbumName">{{ album.AlbumName }}</v-list-tile-title>
-                            <v-list-tile-title v-else>Untitled</v-list-tile-title>
+                            <v-list-tile-title><translate key="Folders">Folders</translate>
+                                <span v-show="config.count.folders > 0"
+                                      class="p-navigation-count">{{ config.count.folders }}</span></v-list-tile-title>
                         </v-list-tile-content>
                     </v-list-tile>
                 </v-list-group>
 
-                <v-list-tile to="/labels" @click="" class="p-navigation-labels" v-show="$config.feature('labels')">
+                <v-list-tile :to="{ name: 'calendar' }" @click="" class="p-navigation-calendar">
                     <v-list-tile-action>
-                        <v-icon>label</v-icon>
+                        <v-icon>date_range</v-icon>
                     </v-list-tile-action>
 
                     <v-list-tile-content>
                         <v-list-tile-title>
-                            <span>{{ $gettext('Labels') }}</span>
-                            <span v-show="config.count.labels > 0"
-                                  class="p-navigation-count">{{ config.count.labels }}</span>
+                            <translate key="Calendar">Calendar</translate>
+                            <span v-show="config.count.months > 0"
+                                  class="p-navigation-count">{{ config.count.months }}</span>
                         </v-list-tile-title>
                     </v-list-tile-content>
                 </v-list-tile>
+
+                <v-list-tile :to="{ name: 'moments' }" @click="" class="p-navigation-moments"
+                             v-show="$config.feature('moments')">
+                    <v-list-tile-action>
+                        <v-icon>star</v-icon>
+                    </v-list-tile-action>
+
+                    <v-list-tile-content>
+                        <v-list-tile-title>
+                            <translate key="Moments">Moments</translate>
+                            <span v-show="config.count.moments > 0"
+                                  class="p-navigation-count">{{ config.count.moments }}</span>
+                        </v-list-tile-title>
+                    </v-list-tile-content>
+                </v-list-tile>
+
+                <!-- v-list-tile to="/events" @click="" class="p-navigation-events">
+                                    <v-list-tile-action>
+                                        <v-icon>date_range</v-icon>
+                                    </v-list-tile-action>
+
+                                    <v-list-tile-content>
+                                        <v-list-tile-title>Events</v-list-tile-title>
+                                    </v-list-tile-content>
+                                </v-list-tile -->
 
                 <v-list-tile :to="{ name: 'places' }" @click="" class="p-navigation-places"
                              v-show="$config.feature('places')">
@@ -181,7 +208,7 @@
 
                     <v-list-tile-content>
                         <v-list-tile-title>
-                            <span>{{ $gettext('Places') }}</span>
+                            <translate key="Places">Places</translate>
                             <span v-show="config.count.places > 0"
                                   class="p-navigation-count">{{ config.count.places }}</span>
                         </v-list-tile-title>
@@ -220,17 +247,73 @@
                     </v-list-tile-content>
                 </v-list-tile -->
 
-                <v-list-tile to="/library" @click="" class="p-navigation-library">
+
+                <!-- v-list-tile to="/folders" @click="" class="p-navigation-folders">
+                    <v-list-tile-action>
+                        <v-icon>sd_storage</v-icon>
+                    </v-list-tile-action>
+
+                    <v-list-tile-content>
+                        <v-list-tile-title>
+                            <translate key="Folders">Folders</translate>
+                            <span v-show="config.count.folders > 0" class="p-navigation-count">{{ config.count.folders }}</span>
+                        </v-list-tile-title>
+                    </v-list-tile-content>
+                </v-list-tile -->
+
+                <v-list-tile to="/labels" @click="" class="p-navigation-labels" v-show="$config.feature('labels')">
+                    <v-list-tile-action>
+                        <v-icon>label</v-icon>
+                    </v-list-tile-action>
+
+                    <v-list-tile-content>
+                        <v-list-tile-title>
+                            <translate key="Labels">Labels</translate>
+                            <span v-show="config.count.labels > 0"
+                                  class="p-navigation-count">{{ config.count.labels }}</span>
+                        </v-list-tile-title>
+                    </v-list-tile-content>
+                </v-list-tile>
+
+                <v-list-tile v-if="mini" to="/library" @click="" class="p-navigation-library">
                     <v-list-tile-action>
                         <v-icon>camera_roll</v-icon>
                     </v-list-tile-action>
 
                     <v-list-tile-content>
                         <v-list-tile-title>
-                            <span>{{ $gettext('Library') }}</span>
+                            <translate key="Library">Library</translate>
                         </v-list-tile-title>
                     </v-list-tile-content>
                 </v-list-tile>
+
+                <v-list-group v-if="!mini" prepend-icon="camera_roll" no-action>
+                    <v-list-tile slot="activator" to="/library" @click.stop="" class="p-navigation-library">
+                        <v-list-tile-content>
+                            <v-list-tile-title>
+                                <translate key="Library">Library</translate>
+                            </v-list-tile-title>
+                        </v-list-tile-content>
+                    </v-list-tile>
+
+                    <v-list-tile to="/library/files" @click="" class="p-navigation-files" v-show="$config.feature('files')">
+                        <v-list-tile-content>
+                            <v-list-tile-title>
+                                <translate key="Files">Files</translate>
+                                <span v-show="config.count.files > 0" class="p-navigation-count">{{ config.count.files }}</span>
+                            </v-list-tile-title>
+                        </v-list-tile-content>
+                    </v-list-tile>
+
+                    <v-list-tile to="/library/hidden" @click="" class="p-navigation-hidden">
+                        <v-list-tile-content>
+                            <v-list-tile-title>
+                                <translate key="Hidden">Hidden</translate>
+                                <span v-show="config.count.hidden > 0" class="p-navigation-count">{{ config.count.hidden }}</span>
+                            </v-list-tile-title>
+                        </v-list-tile-content>
+                    </v-list-tile>
+                </v-list-group>
 
                 <v-list-tile to="/settings" @click="" class="p-navigation-settings" v-show="!config.disableSettings">
                     <v-list-tile-action>
@@ -239,7 +322,7 @@
 
                     <v-list-tile-content>
                         <v-list-tile-title>
-                            <span>{{ $gettext('Settings') }}</span>
+                            <translate key="Settings">Settings</translate>
                         </v-list-tile-title>
                     </v-list-tile-content>
                 </v-list-tile>
@@ -251,7 +334,7 @@
 
                     <v-list-tile-content>
                         <v-list-tile-title>
-                            <span>{{ $gettext('Logout') }}</span>
+                            <translate key="Logout">Logout</translate>
                         </v-list-tile-title>
                     </v-list-tile-content>
                 </v-list-tile>
@@ -263,7 +346,7 @@
 
                     <v-list-tile-content>
                         <v-list-tile-title>
-                            <span>{{ $gettext('Login') }}</span>
+                            <translate key="Login">Login</translate>
                         </v-list-tile-title>
                     </v-list-tile-content>
                 </v-list-tile>
@@ -274,7 +357,6 @@
                          @confirm="upload.dialog = false"></p-upload-dialog>
         <p-photo-edit-dialog :show="edit.dialog" :selection="edit.selection" :index="edit.index" :album="edit.album"
                              @close="edit.dialog = false"></p-photo-edit-dialog>
-        <p-video-dialog ref="video" :play="video.play" :album="video.album"></p-video-dialog>
     </div>
 </template>
 
@@ -304,23 +386,11 @@
                     selection: [],
                     index: 0,
                 },
-                video: {
-                    subscription: null,
-                    album: null,
-                    play: null,
-                },
             };
         },
         computed: {
             auth() {
                 return this.session.auth || this.public
-            },
-            albumExpandIcon() {
-                if (this.config.count.albums > 0) {
-                    return this.$vuetify.icons.expand
-                }
-
-                return ""
             },
         },
         methods: {
@@ -336,7 +406,7 @@
             },
             createAlbum() {
                 let name = "New Album";
-                const album = new Album({AlbumName: name, AlbumFavorite: true});
+                const album = new Album({Title: name, Favorite: true});
                 album.save();
             },
             logout() {
@@ -354,17 +424,10 @@
                     this.edit.dialog = true;
                 }
             });
-
-            this.video.subscription = Event.subscribe("dialog.video", (ev, data) => {
-                this.video.play = data.play;
-                this.video.album = data.album;
-                this.$refs.video.show = true;
-            });
         },
         destroyed() {
             Event.unsubscribe(this.upload.subscription);
             Event.unsubscribe(this.edit.subscription);
-            Event.unsubscribe(this.video.subscription);
         }
     };
 </script>

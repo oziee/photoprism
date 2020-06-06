@@ -10,15 +10,16 @@ import (
 
 func registerRoutes(router *gin.Engine, conf *config.Config) {
 	// Favicon
-	router.StaticFile("/favicon.ico", conf.HttpFaviconsPath()+"/favicon.ico")
+	router.StaticFile("/favicon.ico", conf.FaviconsPath()+"/favicon.ico")
 
 	// Static assets like js and css files
-	router.Static("/static", conf.HttpStaticPath())
+	router.Static("/static", conf.StaticPath())
 
 	// JSON-REST API Version 1
 	v1 := router.Group("/api/v1")
 	{
 		api.GetStatus(v1, conf)
+		api.GetConfig(v1, conf)
 
 		api.CreateSession(v1, conf)
 		api.DeleteSession(v1, conf)
@@ -32,6 +33,7 @@ func registerRoutes(router *gin.Engine, conf *config.Config) {
 
 		api.GetGeo(v1, conf)
 		api.GetPhoto(v1, conf)
+		api.GetPhotoYaml(v1, conf)
 		api.UpdatePhoto(v1, conf)
 		api.GetPhotos(v1, conf)
 		api.GetPhotoDownload(v1, conf)
@@ -53,11 +55,12 @@ func registerRoutes(router *gin.Engine, conf *config.Config) {
 		api.DislikeLabel(v1, conf)
 		api.LabelThumbnail(v1, conf)
 
+		api.GetFoldersOriginals(v1, conf)
+		api.GetFoldersImport(v1, conf)
+
 		api.Upload(v1, conf)
-		api.GetImportOptions(v1, conf)
 		api.StartImport(v1, conf)
 		api.CancelImport(v1, conf)
-		api.GetIndexingOptions(v1, conf)
 		api.StartIndexing(v1, conf)
 		api.CancelIndexing(v1, conf)
 
@@ -121,6 +124,7 @@ func registerRoutes(router *gin.Engine, conf *config.Config) {
 
 	// Default HTML page (client-side routing implemented via Vue.js)
 	router.NoRoute(func(c *gin.Context) {
-		c.HTML(http.StatusOK, conf.HttpDefaultTemplate(), gin.H{"clientConfig": conf.PublicClientConfig()})
+		clientConfig := conf.PublicClientConfig()
+		c.HTML(http.StatusOK, conf.DefaultTemplate(), gin.H{"config": clientConfig})
 	})
 }

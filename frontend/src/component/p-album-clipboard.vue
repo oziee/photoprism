@@ -110,13 +110,16 @@
                     return;
                 }
 
-                this.onDownload(`/api/v1/albums/${this.selection[0]}/download`);
+                this.onDownload(`/api/v1/albums/${this.selection[0]}/dl?t=${this.$config.downloadToken()}`);
 
                 this.expanded = false;
             },
             onDownload(path) {
                 Notify.success(this.$gettext("Downloading..."));
-                window.open(path, "_blank");
+                const link = document.createElement('a')
+                link.href = path;
+                link.download = "album.zip";
+                link.click();
             },
         }
     };

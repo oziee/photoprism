@@ -1,6 +1,7 @@
 import Event from "pubsub-js";
 import themes from "../resources/themes.json";
 import translations from "../resources/translations.json";
+import Api from "./api";
 
 class Config {
     /**
@@ -11,16 +12,27 @@ class Config {
         this.storage = storage;
         this.storage_key = "config";
 
+        this.$vuetify = null;
         this.translations = translations;
-        this.values = values;
-        this.debug = !!values.debug;
+
+        if (!values || !values.siteTitle) {
+            console.warn("config: values are empty");
+            this.debug = true;
+            this.values = {};
+            this.page = {
+                title: "PhotoPrism",
+            };
+            return;
+        }
+
         this.page = {
-            title: "PhotoPrism",
+            title: values.siteTitle,
         };
 
-        this.$vuetify = null;
+        this.values = values;
+        this.debug = !!values.debug;
 
-        Event.subscribe("config.updated", (ev, data) => this.setValues(data));
+        Event.subscribe("config.updated", (ev, data) => this.setValues(data.config));
         Event.subscribe("count", (ev, data) => this.onCount(ev, data));
 
         if (this.has("settings")) {
@@ -28,6 +40,10 @@ class Config {
         } else {
             this.setTheme("default");
         }
+    }
+
+    update() {
+        Api.get("config").then((response) => this.setValues(response.data));
     }
 
     setValues(values) {
@@ -54,29 +70,52 @@ class Config {
         const type = ev.split(".")[1];
 
         switch (type) {
-        case "videos":
-            this.values.count.videos += data.count;
+        case "cameras":
+            this.values.count.cameras += data.count;
+            this.update();
             break;
-        case "favorites":
-            this.values.count.favorites += data.count;
-            break;
-        case "private":
-            this.values.count.private += data.count;
-            break;
-        case "albums":
-            this.values.count.albums += data.count;
-            break;
-        case "photos":
-            this.values.count.photos += data.count;
+        case "lenses":
+            this.values.count.lenses += data.count;
             break;
         case "countries":
             this.values.count.countries += data.count;
+            this.update();
             break;
         case "places":
             this.values.count.places += data.count;
             break;
         case "labels":
             this.values.count.labels += data.count;
+            break;
+        case "videos":
+            this.values.count.videos += data.count;
+            break;
+        case "albums":
+            this.values.count.albums += data.count;
+            break;
+        case "moments":
+            this.values.count.moments += data.count;
+            break;
+        case "months":
+            this.values.count.months += data.count;
+            break;
+        case "folders":
+            this.values.count.folders += data.count;
+            break;
+        case "files":
+            this.values.count.files += data.count;
+            break;
+        case "favorites":
+            this.values.count.favorites += data.count;
+            break;
+        case "review":
+            this.values.count.review += data.count;
+            break;
+        case "private":
+            this.values.count.private += data.count;
+            break;
+        case "photos":
+            this.values.count.photos += data.count;
             break;
         default:
             console.warn("unknown count type", ev, data);
@@ -127,6 +166,14 @@ class Config {
 
     settings() {
         return this.values.settings;
+    }
+
+    downloadToken() {
+        return this.values["downloadToken"];
+    }
+
+    previewToken() {
+        return this.values["previewToken"];
     }
 }
 

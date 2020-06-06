@@ -24,11 +24,11 @@ func NewResample(conf *config.Config) *Resample {
 
 // Start creates default thumbnails for all files in originalsPath.
 func (rs *Resample) Start(force bool) error {
-	if err := mutex.Worker.Start(); err != nil {
+	if err := mutex.MainWorker.Start(); err != nil {
 		return err
 	}
 
-	defer mutex.Worker.Stop()
+	defer mutex.MainWorker.Stop()
 
 	originalsPath := rs.conf.OriginalsPath()
 	thumbnailsPath := rs.conf.ThumbPath()
@@ -47,7 +47,7 @@ func (rs *Resample) Start(force bool) error {
 	}
 
 	done := make(map[string]bool)
-	ignore := fs.NewIgnoreList(IgnoreFile, true, false)
+	ignore := fs.NewIgnoreList(fs.IgnoreFile, true, false)
 
 	if err := ignore.Dir(originalsPath); err != nil {
 		log.Infof("resample: %s", err)
@@ -65,7 +65,7 @@ func (rs *Resample) Start(force bool) error {
 				}
 			}()
 
-			if mutex.Worker.Canceled() {
+			if mutex.MainWorker.Canceled() {
 				return errors.New("resample: canceled")
 			}
 

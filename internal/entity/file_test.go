@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/photoprism/photoprism/pkg/fs"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -25,28 +26,27 @@ func TestFirstFileByHash(t *testing.T) {
 func TestFile_DownloadFileName(t *testing.T) {
 	t.Run("photo with title", func(t *testing.T) {
 		photo := &Photo{TakenAtLocal: time.Date(2019, 01, 15, 0, 0, 0, 0, time.UTC), PhotoTitle: "Berlin / Morning Mood"}
-		file := &File{Photo: photo, FileType: "jpg", FileUUID: "foobar345678765"}
+		file := &File{Photo: photo, FileType: "jpg", FileUID: "foobar345678765", FileHash: "e98eb86480a72bd585d228a709f0622f90e86cbc"}
 
 		filename := file.ShareFileName()
 
 		assert.Contains(t, filename, "20190115-000000-Berlin-Morning-Mood")
-		assert.Contains(t, filename, ".jpg")
+		assert.Contains(t, filename, fs.JpegExt)
 	})
 	t.Run("photo without title", func(t *testing.T) {
 		photo := &Photo{TakenAtLocal: time.Date(2019, 01, 15, 0, 0, 0, 0, time.UTC), PhotoTitle: ""}
-		file := &File{Photo: photo, FileType: "jpg", PhotoUUID: "123", FileUUID: "foobar345678765"}
+		file := &File{Photo: photo, FileType: "jpg", PhotoUID: "123", FileUID: "foobar345678765", FileHash: "e98eb86480a72bd585d228a709f0622f90e86cbc"}
 
 		filename := file.ShareFileName()
 
-		assert.Contains(t, filename, "20190115-000000-123")
-		assert.Contains(t, filename, ".jpg")
+		assert.Equal(t, filename, "e98eb86480a72bd585d228a709f0622f90e86cbc.jpg")
 	})
 	t.Run("photo without photo", func(t *testing.T) {
-		file := &File{Photo: nil, FileType: "jpg", FileHash: "123Hash", FileUUID: "foobar345678765"}
+		file := &File{Photo: nil, FileType: "jpg", FileUID: "foobar345678765", FileHash: "e98eb86480a72bd585d228a709f0622f90e86cbc"}
 
 		filename := file.ShareFileName()
 
-		assert.Equal(t, "123Hash.jpg", filename)
+		assert.Equal(t, "e98eb86480a72bd585d228a709f0622f90e86cbc.jpg", filename)
 	})
 }
 
@@ -84,8 +84,8 @@ func TestFile_Purge(t *testing.T) {
 func TestFile_AllFilesMissing(t *testing.T) {
 	t.Run("true", func(t *testing.T) {
 		photo := &Photo{TakenAtLocal: time.Date(2019, 01, 15, 0, 0, 0, 0, time.UTC), PhotoTitle: ""}
-		file := &File{Photo: photo, FileType: "jpg", PhotoUUID: "123", FileUUID: "123", FileMissing: true}
-		file2 := &File{Photo: photo, FileType: "jpg", PhotoUUID: "123", FileUUID: "456", FileMissing: true}
+		file := &File{Photo: photo, FileType: "jpg", PhotoUID: "123", FileUID: "123", FileMissing: true}
+		file2 := &File{Photo: photo, FileType: "jpg", PhotoUID: "123", FileUID: "456", FileMissing: true}
 		assert.True(t, file.AllFilesMissing())
 		assert.NotEmpty(t, file2)
 	})
@@ -98,10 +98,18 @@ func TestFile_AllFilesMissing(t *testing.T) {
 }
 
 func TestFile_Save(t *testing.T) {
-	t.Run("record not found", func(t *testing.T) {
-		file := &File{Photo: nil, FileType: "jpg", PhotoUUID: "123", FileUUID: "123"}
+	t.Run("save without photo", func(t *testing.T) {
+		file := &File{Photo: nil, FileType: "jpg", PhotoUID: "123", FileUID: "123"}
 		err := file.Save()
-		assert.Equal(t, "record not found", err.Error())
+
+		if err == nil {
+			t.Fatal("error should not be nil")
+		}
+
+		if file.ID != 0 {
+			t.Fatalf("file id should be 0: %d", file.ID)
+		}
+
+		assert.Equal(t, "file: photo id is empty (123)", err.Error())
 	})
-	//TODO test success
 }

@@ -3,7 +3,7 @@
         <div id="map" style="width: 100%; height: 100%;">
             <div class="p-map-control">
                 <div class="mapboxgl-ctrl mapboxgl-ctrl-group">
-                    <v-text-field class="pa-0 ma-0"
+                    <v-text-field class="pa-0 ma-0 input-search"
                                   single-line
                                   solo
                                   flat
@@ -40,6 +40,19 @@
         },
         data() {
             const s = this.$config.values.settings.maps;
+            const filter = {
+                q: this.query(),
+            };
+
+            const settings = this.$config.settings();
+
+            if (settings && settings.features.private) {
+                filter.public = true;
+            }
+
+            if (settings && settings.features.review && (!this.staticFilter || !("quality" in this.staticFilter))) {
+                filter.quality = 3;
+            }
 
             return {
                 initialized: false,
@@ -58,9 +71,7 @@
                 },
                 photos: [],
                 result: {},
-                filter: {
-                    q: this.query(),
-                },
+                filter: filter,
                 lastFilter: {},
                 labels: {
                     search: this.$gettext("Search"),
@@ -79,11 +90,11 @@
                 }
 
                 if (this.photos.length > 0) {
-                    const index = this.photos.findIndex((p) => p.PhotoUUID === id);
+                    const index = this.photos.findIndex((p) => p.UID === id);
 
                     this.$viewer.show(Thumb.fromPhotos(this.photos), index)
                 } else {
-                    this.$notify.warning("No photos found");
+                    this.$notify.warn("No photos found");
                 }
             },
             formChange() {
@@ -120,7 +131,7 @@
                     if (!response.data.features || response.data.features.length === 0) {
                         this.loading = false;
 
-                        this.$notify.warning("No photos found");
+                        this.$notify.warn("No photos found");
 
                         return;
                     }
@@ -166,17 +177,16 @@
                     let id = features[i].id;
 
                     let marker = this.markers[id];
+                    let token = this.$config.previewToken();
                     if (!marker) {
                         let el = document.createElement('div');
                         el.className = 'marker';
-                        el.title = props.PhotoTitle;
-                        el.style.backgroundImage =
-                            'url(/api/v1/thumbnails/' +
-                            props.FileHash + '/tile_50)';
+                        el.title = props.Title;
+                        el.style.backgroundImage = `url(/api/v1/t/${props.Hash}/${token}/tile_50)`;
                         el.style.width = '50px';
                         el.style.height = '50px';
 
-                        el.addEventListener('click', () => this.openPhoto(props.PhotoUUID));
+                        el.addEventListener('click', () => this.openPhoto(props.UID));
                         marker = this.markers[id] = new mapboxgl.Marker({
                             element: el
                         }).setLngLat(coords);

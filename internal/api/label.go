@@ -1,10 +1,11 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"path"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/photoprism/photoprism/internal/event"
 	"github.com/photoprism/photoprism/internal/form"
 	"github.com/photoprism/photoprism/internal/query"
+	"github.com/photoprism/photoprism/internal/service"
 	"github.com/photoprism/photoprism/internal/thumb"
 	"github.com/photoprism/photoprism/pkg/fs"
 	"github.com/photoprism/photoprism/pkg/txt"
@@ -52,9 +54,9 @@ func GetLabels(router *gin.RouterGroup, conf *config.Config) {
 	})
 }
 
-// PUT /api/v1/labels/:uuid
+// PUT /api/v1/labels/:uid
 func UpdateLabel(router *gin.RouterGroup, conf *config.Config) {
-	router.PUT("/labels/:uuid", func(c *gin.Context) {
+	router.PUT("/labels/:uid", func(c *gin.Context) {
 		if Unauthorized(c, conf) {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, ErrUnauthorized)
 			return
@@ -67,8 +69,8 @@ func UpdateLabel(router *gin.RouterGroup, conf *config.Config) {
 			return
 		}
 
-		id := c.Param("uuid")
-		m, err := query.LabelByUUID(id)
+		id := c.Param("uid")
+		m, err := query.LabelByUID(id)
 
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusNotFound, ErrLabelNotFound)
@@ -86,27 +88,29 @@ func UpdateLabel(router *gin.RouterGroup, conf *config.Config) {
 	})
 }
 
-// POST /api/v1/labels/:uuid/like
+// POST /api/v1/labels/:uid/like
 //
 // Parameters:
-//   uuid: string Label UUID
+//   uid: string Label UID
 func LikeLabel(router *gin.RouterGroup, conf *config.Config) {
-	router.POST("/labels/:uuid/like", func(c *gin.Context) {
+	router.POST("/labels/:uid/like", func(c *gin.Context) {
 		if Unauthorized(c, conf) {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, ErrUnauthorized)
 			return
 		}
 
-		id := c.Param("uuid")
-		label, err := query.LabelByUUID(id)
+		id := c.Param("uid")
+		label, err := query.LabelByUID(id)
 
 		if err != nil {
-			c.AbortWithStatusJSON(404, gin.H{"error": txt.UcFirst(err.Error())})
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": txt.UcFirst(err.Error())})
 			return
 		}
 
-		label.LabelFavorite = true
-		entity.Db().Save(&label)
+		if err := label.Update("LabelFavorite", true); err != nil {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": txt.UcFirst(err.Error())})
+			return
+		}
 
 		if label.LabelPriority < 0 {
 			event.Publish("count.labels", event.Data{
@@ -120,27 +124,29 @@ func LikeLabel(router *gin.RouterGroup, conf *config.Config) {
 	})
 }
 
-// DELETE /api/v1/labels/:uuid/like
+// DELETE /api/v1/labels/:uid/like
 //
 // Parameters:
-//   uuid: string Label UUID
+//   uid: string Label UID
 func DislikeLabel(router *gin.RouterGroup, conf *config.Config) {
-	router.DELETE("/labels/:uuid/like", func(c *gin.Context) {
+	router.DELETE("/labels/:uid/like", func(c *gin.Context) {
 		if Unauthorized(c, conf) {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, ErrUnauthorized)
 			return
 		}
 
-		id := c.Param("uuid")
-		label, err := query.LabelByUUID(id)
+		id := c.Param("uid")
+		label, err := query.LabelByUID(id)
 
 		if err != nil {
-			c.AbortWithStatusJSON(404, gin.H{"error": txt.UcFirst(err.Error())})
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": txt.UcFirst(err.Error())})
 			return
 		}
 
-		label.LabelFavorite = false
-		entity.Db().Save(&label)
+		if err := label.Update("LabelFavorite", false); err != nil {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": txt.UcFirst(err.Error())})
+			return
+		}
 
 		if label.LabelPriority < 0 {
 			event.Publish("count.labels", event.Data{
@@ -154,37 +160,60 @@ func DislikeLabel(router *gin.RouterGroup, conf *config.Config) {
 	})
 }
 
-// GET /api/v1/labels/:uuid/thumbnail/:type
-//
-// Example: /api/v1/labels/cheetah/thumbnail/tile_500
+// GET /api/v1/labels/:uid/t/:token/:type
 //
 // Parameters:
-//   uuid: string Label UUID
+//   uid: string Label UID
 //   type: string Thumbnail type, see photoprism.ThumbnailTypes
 func LabelThumbnail(router *gin.RouterGroup, conf *config.Config) {
-	router.GET("/labels/:uuid/thumbnail/:type", func(c *gin.Context) {
-		typeName := c.Param("type")
-		labelUUID := c.Param("uuid")
+	router.GET("/labels/:uid/t/:token/:type", func(c *gin.Context) {
+		if InvalidToken(c, conf) {
+			c.Data(http.StatusForbidden, "image/svg+xml", labelIconSvg)
+			return
+		}
+
 		start := time.Now()
+		typeName := c.Param("type")
+		uid := c.Param("uid")
 
 		thumbType, ok := thumb.Types[typeName]
 
 		if !ok {
-			log.Errorf("label: invalid thumb type %s", txt.Quote(typeName))
+			log.Errorf("label-thumbnail: invalid type %s", txt.Quote(typeName))
 			c.Data(http.StatusOK, "image/svg+xml", labelIconSvg)
 			return
 		}
 
-		gc := conf.Cache()
-		cacheKey := fmt.Sprintf("label-thumbnail:%s:%s", labelUUID, typeName)
+		cache := service.Cache()
+		cacheKey := fmt.Sprintf("label-thumbnail:%s:%s", uid, typeName)
 
-		if cacheData, ok := gc.Get(cacheKey); ok {
-			log.Debugf("label: %s cache hit [%s]", cacheKey, time.Since(start))
-			c.Data(http.StatusOK, "image/jpeg", cacheData.([]byte))
+		if cacheData, err := cache.Get(cacheKey); err == nil {
+			log.Debugf("cache hit for %s [%s]", cacheKey, time.Since(start))
+
+			var cached ThumbCache
+
+			if err := json.Unmarshal(cacheData, &cached); err != nil {
+				log.Errorf("label-thumbnail: %s not found", uid)
+				c.Data(http.StatusOK, "image/svg+xml", labelIconSvg)
+				return
+			}
+
+			if !fs.FileExists(cached.FileName) {
+				log.Errorf("label-thumbnail: %s not found", uid)
+				c.Data(http.StatusOK, "image/svg+xml", labelIconSvg)
+				return
+			}
+
+			if c.Query("download") != "" {
+				c.FileAttachment(cached.FileName, cached.ShareName)
+			} else {
+				c.File(cached.FileName)
+			}
+
 			return
 		}
 
-		f, err := query.LabelThumbByUUID(labelUUID)
+		f, err := query.LabelThumbByUID(uid)
 
 		if err != nil {
 			log.Errorf(err.Error())
@@ -195,18 +224,18 @@ func LabelThumbnail(router *gin.RouterGroup, conf *config.Config) {
 		fileName := path.Join(conf.OriginalsPath(), f.FileName)
 
 		if !fs.FileExists(fileName) {
-			log.Errorf("label: could not find original for %s", fileName)
+			log.Errorf("label-thumbnail: file %s is missing", txt.Quote(f.FileName))
 			c.Data(http.StatusOK, "image/svg+xml", labelIconSvg)
 
-			// Set missing flag so that the file doesn't show up in search results anymore
-			f.FileMissing = true
-			conf.Db().Save(&f)
+			// Set missing flag so that the file doesn't show up in search results anymore.
+			logError("label-thumbnail", f.Update("FileMissing", true))
+
 			return
 		}
 
 		// Use original file if thumb size exceeds limit, see https://github.com/photoprism/photoprism/issues/157
 		if thumbType.ExceedsLimit() {
-			log.Debugf("label: using original, thumbnail size exceeds limit (width %d, height %d)", thumbType.Width, thumbType.Height)
+			log.Debugf("label-thumbnail: using original, size exceeds limit (width %d, height %d)", thumbType.Width, thumbType.Height)
 
 			c.File(fileName)
 
@@ -222,23 +251,24 @@ func LabelThumbnail(router *gin.RouterGroup, conf *config.Config) {
 		}
 
 		if err != nil {
-			log.Errorf("label: %s", err)
+			log.Errorf("label-thumbnail: %s", err)
+			c.Data(http.StatusOK, "image/svg+xml", labelIconSvg)
+			return
+		} else if thumbnail == "" {
+			log.Errorf("label-thumbnail: %s has empty thumb name - bug?", filepath.Base(fileName))
 			c.Data(http.StatusOK, "image/svg+xml", labelIconSvg)
 			return
 		}
 
-		thumbData, err := ioutil.ReadFile(thumbnail)
-
-		if err != nil {
-			log.Errorf("label: %s", err)
-			c.Data(http.StatusOK, "image/svg+xml", labelIconSvg)
-			return
+		if cached, err := json.Marshal(ThumbCache{thumbnail, f.ShareFileName()}); err == nil {
+			logError("label-thumbnail", cache.Set(cacheKey, cached))
+			log.Debugf("cached %s [%s]", cacheKey, time.Since(start))
 		}
 
-		gc.Set(cacheKey, thumbData, time.Hour*4)
-
-		log.Debugf("label: %s cached [%s]", cacheKey, time.Since(start))
-
-		c.Data(http.StatusOK, "image/jpeg", thumbData)
+		if c.Query("download") != "" {
+			c.FileAttachment(thumbnail, f.ShareFileName())
+		} else {
+			c.File(thumbnail)
+		}
 	})
 }

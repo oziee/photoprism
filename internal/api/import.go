@@ -18,24 +18,6 @@ import (
 	"github.com/photoprism/photoprism/pkg/txt"
 )
 
-// GET /api/v1/import
-func GetImportOptions(router *gin.RouterGroup, conf *config.Config) {
-	router.GET("/import", func(c *gin.Context) {
-		if Unauthorized(c, conf) {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, ErrUnauthorized)
-			return
-		}
-
-		dirs, err := fs.Dirs(conf.ImportPath(), true)
-
-		if err != nil {
-			log.Errorf("import: %s", err)
-		}
-
-		c.JSON(http.StatusOK, gin.H{"dirs": dirs})
-	})
-}
-
 // POST /api/v1/import*
 func StartImport(router *gin.RouterGroup, conf *config.Config) {
 	router.POST("/import/*path", func(c *gin.Context) {
@@ -63,12 +45,10 @@ func StartImport(router *gin.RouterGroup, conf *config.Config) {
 
 		if subPath = c.Param("path"); subPath != "" && subPath != "/" {
 			subPath = strings.Replace(subPath, ".", "", -1)
-			log.Debugf("import sub path from url: %s", subPath)
-			path = path + subPath
+			path = filepath.Join(path, subPath)
 		} else if f.Path != "" {
 			subPath = strings.Replace(f.Path, ".", "", -1)
-			log.Debugf("import sub path from request: %s", subPath)
-			path = path + subPath
+			path = filepath.Join(path, subPath)
 		}
 
 		path = filepath.Clean(path)
@@ -85,6 +65,11 @@ func StartImport(router *gin.RouterGroup, conf *config.Config) {
 			opt = photoprism.ImportOptionsCopy(path)
 		}
 
+		if len(f.Albums) > 0 {
+			log.Debugf("import: files will be added to album %s", strings.Join(f.Albums, " and "))
+			opt.Albums = f.Albums
+		}
+
 		imp.Start(opt)
 
 		if subPath != "" && path != conf.ImportPath() && fs.IsEmpty(path) {
@@ -95,12 +80,23 @@ func StartImport(router *gin.RouterGroup, conf *config.Config) {
 			}
 		}
 
+		moments := service.Moments()
+
+		if err := moments.Start(); err != nil {
+			log.Error(err)
+		}
+
 		elapsed := int(time.Since(start).Seconds())
 
 		event.Success(fmt.Sprintf("import completed in %d s", elapsed))
 		event.Publish("import.completed", event.Data{"path": path, "seconds": elapsed})
 		event.Publish("index.completed", event.Data{"path": path, "seconds": elapsed})
-		event.Publish("config.updated", event.Data(conf.ClientConfig()))
+
+		for _, uid := range f.Albums {
+			PublishAlbumEvent(EntityUpdated, uid, c)
+		}
+
+		UpdateClientConfig(conf)
 
 		c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("import completed in %d s", elapsed)})
 	})

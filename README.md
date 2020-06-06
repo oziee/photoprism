@@ -9,7 +9,7 @@ PhotoPrism: Browse your life in pictures
 [![Community Chat](https://img.shields.io/badge/chat-on%20gitter-4aa087.svg)][chat]
 [![Twitter](https://img.shields.io/badge/follow-@browseyourlife-00acee.svg)][twitter]
 
-PhotoPrism is a server-based application for browsing, organizing and sharing your personal photo collection.
+PhotoPrism™ is a server-based application for browsing, organizing and sharing your personal photo collection.
 It makes use of the latest technologies to automatically tag and find pictures without getting in your way.
 Say goodbye to solutions that force you to upload your visual memories to the cloud.
 
@@ -119,8 +119,18 @@ If any of those organizations changes their mind, they are welcome to [reach out
 ## Disclaimer ##
 
 We'd like to remind everyone that we are not full-time marketing specialists but developers who work a lot and 
-enjoy a bit of sarcasm from time to time. Please let us know when there is an issue with our "nuance and tone" 
+enjoy a bit of sarcasm from time to time. Please let us know when there is an issue with our "nuance and tone", 
 and we'll find a solution.
+
+PhotoPrism™ is a trademark of Michael Mayer.
+You may use it as required to describe our software, run your own server, for educational purposes,
+but not for offering goods, products, or services to others without prior written permission.
+In other words, please ask.
+
+In exchange, PhotoPrism is [GPL](https://en.wikipedia.org/wiki/GNU_General_Public_License) 
+licensed instead of [AGPL](https://en.wikipedia.org/wiki/Affero_General_Public_License).
+This means, you're not legally obliged to publish the source code when modifying a private copy.
+Hopefully we can keep it like that :)
 
 [wiki:classification]: https://github.com/photoprism/photoprism/wiki/Image-Classification
 [wiki:xmp]: https://github.com/photoprism/photoprism/wiki/XMP

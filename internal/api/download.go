@@ -2,26 +2,32 @@ package api
 
 import (
 	"fmt"
+	"net/http"
 	"path"
 
 	"github.com/photoprism/photoprism/internal/config"
-	"github.com/photoprism/photoprism/internal/entity"
 	"github.com/photoprism/photoprism/internal/query"
 	"github.com/photoprism/photoprism/pkg/fs"
+	"github.com/photoprism/photoprism/pkg/txt"
 
 	"github.com/gin-gonic/gin"
 )
 
 // TODO: GET /api/v1/dl/file/:hash
-// TODO: GET /api/v1/dl/photo/:uuid
-// TODO: GET /api/v1/dl/album/:uuid
+// TODO: GET /api/v1/dl/photo/:uid
+// TODO: GET /api/v1/dl/album/:uid
 
-// GET /api/v1/download/:hash
+// GET /api/v1/dl/:hash
 //
 // Parameters:
 //   hash: string The file hash as returned by the search API
 func GetDownload(router *gin.RouterGroup, conf *config.Config) {
-	router.GET("/download/:hash", func(c *gin.Context) {
+	router.GET("/dl/:hash", func(c *gin.Context) {
+		if InvalidDownloadToken(c, conf) {
+			c.Data(http.StatusForbidden, "image/svg+xml", brokenIconSvg)
+			return
+		}
+
 		fileHash := c.Param("hash")
 
 		f, err := query.FileByHash(fileHash)
@@ -34,12 +40,12 @@ func GetDownload(router *gin.RouterGroup, conf *config.Config) {
 		fileName := path.Join(conf.OriginalsPath(), f.FileName)
 
 		if !fs.FileExists(fileName) {
-			log.Errorf("could not find original: %s", fileHash)
-			c.Data(404, "image/svg+xml", photoIconSvg)
+			log.Errorf("download: file %s is missing", txt.Quote(f.FileName))
+			c.Data(404, "image/svg+xml", brokenIconSvg)
 
-			// Set missing flag so that the file doesn't show up in search results anymore
-			f.FileMissing = true
-			entity.Db().Save(&f)
+			// Set missing flag so that the file doesn't show up in search results anymore.
+			logError("download", f.Update("FileMissing", true))
+
 			return
 		}
 

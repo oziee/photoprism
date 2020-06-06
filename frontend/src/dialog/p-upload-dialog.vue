@@ -6,7 +6,9 @@
                 <v-btn icon dark @click.stop="cancel">
                     <v-icon>close</v-icon>
                 </v-btn>
-                <v-toolbar-title><translate>Upload</translate></v-toolbar-title>
+                <v-toolbar-title>
+                    <translate>Upload</translate>
+                </v-toolbar-title>
             </v-toolbar>
             <v-container grid-list-xs text-xs-left fluid>
                 <v-form ref="form" class="p-photo-upload" lazy-validation @submit.prevent="submit" dense>
@@ -14,7 +16,38 @@
 
                     <v-container fluid>
                         <p class="subheading">
-                            <span v-if="total === 0">Select photos to start upload...</span>
+                            <v-combobox v-if="total === 0" flat solo hide-details chips deletable-chips
+                                        multiple color="secondary-dark" class="my-0"
+                                        v-model="selectedAlbums"
+                                        :items="albums"
+                                        item-text="Title"
+                                        item-value="UID"
+                                        :allow-overflow="false"
+                                        label="Select albums or create a new one"
+                                        return-object
+                            >
+                                <template v-slot:no-data>
+                                    <v-list-tile>
+                                        <v-list-tile-content>
+                                            <v-list-tile-title>
+                                                Press <kbd>enter</kbd> to create a new album.
+                                            </v-list-tile-title>
+                                        </v-list-tile-content>
+                                    </v-list-tile>
+                                </template>
+                                <template v-slot:selection="data">
+                                    <v-chip
+                                            :key="JSON.stringify(data.item)"
+                                            :selected="data.selected"
+                                            :disabled="data.disabled"
+                                            class="v-chip--select-multi"
+                                            @input="data.parent.selectItem(data.item)"
+                                    >
+                                        <v-icon class="pr-1">folder</v-icon>
+                                        {{ data.item.Title ? data.item.Title : data.item | truncate(40) }}
+                                    </v-chip>
+                                </template>
+                            </v-combobox>
                             <span v-else-if="failed">Upload failed</span>
                             <span v-else-if="total > 0 && completed < 100">
                         Uploading {{current}} of {{total}}...
@@ -22,6 +55,7 @@
                             <span v-else-if="indexing">Upload complete. Indexing...</span>
                             <span v-else-if="completed === 100">Done.</span>
                         </p>
+
 
                         <v-progress-linear color="secondary-dark" v-model="completed"
                                            :indeterminate="indexing"></v-progress-linear>
@@ -39,7 +73,7 @@
                         <v-btn
                                 :disabled="busy"
                                 color="secondary-dark"
-                                class="white--text ml-0 mt-2"
+                                class="white--text ml-0 mt-2 action-upload"
                                 depressed
                                 @click.stop="uploadDialog()"
                         >
@@ -56,6 +90,7 @@
 <script>
     import Api from "common/api";
     import Notify from "common/notify";
+    import Album from "../model/album";
 
     export default {
         name: 'p-tab-upload',
@@ -64,7 +99,10 @@
         },
         data() {
             return {
+                albums: [],
+                selectedAlbums: [],
                 selected: [],
+                loading: false,
                 uploads: [],
                 busy: false,
                 indexing: false,
@@ -78,8 +116,27 @@
             }
         },
         methods: {
+            findAlbums(q) {
+                if (this.loading) {
+                    return;
+                }
+
+                this.loading = true;
+
+                const params = {
+                    q: q,
+                    count: 1000,
+                    offset: 0,
+                    type: "album"
+                };
+
+                Album.search(params).then(response => {
+                    this.loading = false;
+                    this.albums = response.models;
+                }).catch(() => this.loading = false);
+            },
             cancel() {
-                if(this.busy) {
+                if (this.busy) {
                     Notify.info(this.$gettext("Uploading photos..."));
                     return;
                 }
@@ -87,7 +144,7 @@
                 this.$emit('cancel');
             },
             confirm() {
-                if(this.busy) {
+                if (this.busy) {
                     Notify.info(this.$gettext("Uploading photos..."));
                     return;
                 }
@@ -116,6 +173,18 @@
                 }
 
                 Notify.info(this.$gettext("Uploading photos..."));
+
+                let addToAlbums = [];
+
+                if (this.selectedAlbums && this.selectedAlbums.length > 0) {
+                    this.selectedAlbums.forEach((a) => {
+                        if (typeof a === "string") {
+                            addToAlbums.push(a)
+                        } else if (a instanceof Album && a.UID) {
+                            addToAlbums.push(a.UID)
+                        }
+                    });
+                }
 
                 async function performUpload(ctx) {
                     for (let i = 0; i < ctx.selected.length; i++) {
@@ -152,6 +221,7 @@
 
                     Api.post('import/upload/' + this.started, {
                         move: true,
+                        albums: addToAlbums,
                     }).then(() => {
                         Notify.success(ctx.$gettext("Upload complete"));
                         ctx.busy = false;
@@ -178,6 +248,7 @@
                 this.started = 0;
                 this.review = this.$config.feature("review");
                 this.safe = !this.$config.get("uploadNSFW");
+                this.findAlbums("");
             }
         },
     };

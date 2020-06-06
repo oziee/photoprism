@@ -5,6 +5,7 @@ import (
 	"image"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -27,7 +28,8 @@ type MediaFile struct {
 	fileName     string
 	fileType     fs.FileType
 	mimeType     string
-	dateCreated  time.Time
+	takenAt      time.Time
+	takenAtSrc   string
 	hash         string
 	checksum     string
 	width        int
@@ -40,7 +42,7 @@ type MediaFile struct {
 // NewMediaFile returns a new media file.
 func NewMediaFile(fileName string) (*MediaFile, error) {
 	if !fs.FileExists(fileName) {
-		return nil, fmt.Errorf("file does not exist: %s", fileName)
+		return nil, fmt.Errorf("%s does not exist", filepath.Base(fileName))
 	}
 
 	instance := &MediaFile{
@@ -63,162 +65,142 @@ func (m *MediaFile) Stat() (size int64, mod time.Time) {
 	return s.Size(), s.ModTime().Round(time.Second)
 }
 
-// DateCreated returns the date on which the media file was created in UTC.
-func (m *MediaFile) DateCreated() time.Time {
-	if !m.dateCreated.IsZero() {
-		return m.dateCreated
-	}
-
-	m.dateCreated = time.Now().UTC()
-
-	info, err := m.MetaData()
-
-	if err == nil && !info.TakenAt.IsZero() && info.TakenAt.Year() > 1000 {
-		m.dateCreated = info.TakenAt.UTC()
-
-		log.Infof("mediafile: taken at %s (meta)", m.dateCreated.String())
-
-		return m.dateCreated
-	}
-
-	t, err := times.Stat(m.FileName())
+// FileSize returns the media file size.
+func (m *MediaFile) FileSize() (size int64) {
+	s, err := os.Stat(m.FileName())
 
 	if err != nil {
-		log.Debug(err.Error())
-
-		return m.dateCreated
+		log.Errorf("mediafile: unknown size (%s)", err)
+		return -1
 	}
 
-	if t.HasBirthTime() {
-		m.dateCreated = t.BirthTime().UTC()
+	return s.Size()
+}
+
+// DateCreated returns only the date on which the media file was probably taken in UTC.
+func (m *MediaFile) DateCreated() time.Time {
+	takenAt, _ := m.TakenAt()
+
+	return takenAt
+}
+
+// TakenAt returns the date on which the media file was taken in UTC and the source of this information.
+func (m *MediaFile) TakenAt() (time.Time, string) {
+	if !m.takenAt.IsZero() {
+		return m.takenAt, m.takenAtSrc
+	}
+
+	m.takenAt = time.Now().UTC()
+
+	data := m.MetaData()
+
+	if data.Error == nil && !data.TakenAt.IsZero() && data.TakenAt.Year() > 1000 {
+		m.takenAt = data.TakenAt.UTC()
+		m.takenAtSrc = entity.SrcMeta
+
+		log.Infof("mediafile: %s was taken at %s (%s)", filepath.Base(m.fileName), m.takenAt.String(), m.takenAtSrc)
+
+		return m.takenAt, m.takenAtSrc
+	}
+
+	if nameTime := txt.Time(m.fileName); !nameTime.IsZero() {
+		m.takenAt = nameTime
+		m.takenAtSrc = entity.SrcName
+
+		log.Infof("mediafile: %s was taken at %s (%s)", filepath.Base(m.fileName), m.takenAt.String(), m.takenAtSrc)
+
+		return m.takenAt, m.takenAtSrc
+	}
+
+	m.takenAtSrc = entity.SrcAuto
+
+	fileInfo, err := times.Stat(m.FileName())
+
+	if err != nil {
+		log.Warnf("mediafile: %s (file stat)", err.Error())
+		log.Infof("mediafile: %s was taken at %s (now)", filepath.Base(m.fileName), m.takenAt.String())
+
+		return m.takenAt, m.takenAtSrc
+	}
+
+	if fileInfo.HasBirthTime() {
+		m.takenAt = fileInfo.BirthTime().UTC()
+		log.Infof("mediafile: %s was taken at %s (file birth time)", filepath.Base(m.fileName), m.takenAt.String())
 	} else {
-		m.dateCreated = t.ModTime().UTC()
+		m.takenAt = fileInfo.ModTime().UTC()
+		log.Infof("mediafile: %s was taken at %s (file mod time)", filepath.Base(m.fileName), m.takenAt.String())
 	}
 
-	log.Infof("mediafile: taken at %s (file)", m.dateCreated.String())
-
-	return m.dateCreated
+	return m.takenAt, m.takenAtSrc
 }
 
 func (m *MediaFile) HasTimeAndPlace() bool {
-	exifData, err := m.MetaData()
+	data := m.MetaData()
 
-	if err != nil {
-		return false
-	}
-
-	result := !exifData.TakenAt.IsZero() && exifData.Lat != 0 && exifData.Lng != 0
+	result := !data.TakenAt.IsZero() && data.Lat != 0 && data.Lng != 0
 
 	return result
 }
 
 // CameraModel returns the camera model with which the media file was created.
 func (m *MediaFile) CameraModel() string {
-	info, err := m.MetaData()
+	data := m.MetaData()
 
-	var result string
-
-	if err == nil {
-		result = info.CameraModel
-	}
-
-	return result
+	return data.CameraModel
 }
 
 // CameraMake returns the make of the camera with which the file was created.
 func (m *MediaFile) CameraMake() string {
-	info, err := m.MetaData()
+	data := m.MetaData()
 
-	var result string
-
-	if err == nil {
-		result = info.CameraMake
-	}
-
-	return result
+	return data.CameraMake
 }
 
 // LensModel returns the lens model of a media file.
 func (m *MediaFile) LensModel() string {
-	info, err := m.MetaData()
+	data := m.MetaData()
 
-	var result string
-
-	if err == nil {
-		result = info.LensModel
-	}
-
-	return result
+	return data.LensModel
 }
 
 // LensMake returns the make of the Lens.
 func (m *MediaFile) LensMake() string {
-	info, err := m.MetaData()
+	data := m.MetaData()
 
-	var result string
-
-	if err == nil {
-		result = info.LensMake
-	}
-
-	return result
+	return data.LensMake
 }
 
 // FocalLength return the length of the focal for a file.
 func (m *MediaFile) FocalLength() int {
-	info, err := m.MetaData()
+	data := m.MetaData()
 
-	var result int
-
-	if err == nil {
-		result = info.FocalLength
-	}
-
-	return result
+	return data.FocalLength
 }
 
 // FNumber returns the F number with which the media file was created.
 func (m *MediaFile) FNumber() float32 {
-	info, err := m.MetaData()
+	data := m.MetaData()
 
-	var result float32
-
-	if err == nil {
-		result = info.FNumber
-	}
-
-	return result
+	return data.FNumber
 }
 
 // Iso returns the iso rating as int.
 func (m *MediaFile) Iso() int {
-	info, err := m.MetaData()
+	data := m.MetaData()
 
-	var result int
-
-	if err == nil {
-		result = info.Iso
-	}
-
-	return result
+	return data.Iso
 }
 
 // Exposure returns the exposure time as string.
 func (m *MediaFile) Exposure() string {
-	info, err := m.MetaData()
+	data := m.MetaData()
 
-	var result string
-
-	if err == nil {
-		result = info.Exposure
-	}
-
-	return result
+	return data.Exposure
 }
 
 // CanonicalName returns the canonical name of a media file.
 func (m *MediaFile) CanonicalName() string {
-	return CanonicalName(m.DateCreated(), m.Checksum())
+	return fs.CanonicalName(m.DateCreated(), m.Checksum())
 }
 
 // CanonicalNameFromFile returns the canonical name of a file derived from the image name.
@@ -308,6 +290,15 @@ func (m *MediaFile) RelatedFiles(stripSequence bool) (result RelatedFiles, err e
 		result.Files = append(result.Files, resultFile)
 	}
 
+	// Add hidden JPEG if exists.
+	if !result.ContainsJpeg() && result.Main != nil {
+		if jpegName := fs.TypeJpeg.FindSub(result.Main.FileName(), fs.HiddenPath, stripSequence); jpegName != "" {
+			if resultFile, err := NewMediaFile(jpegName); err == nil {
+				result.Files = append(result.Files, resultFile)
+			}
+		}
+	}
+
 	sort.Sort(result.Files)
 
 	return result, nil
@@ -316,6 +307,11 @@ func (m *MediaFile) RelatedFiles(stripSequence bool) (result RelatedFiles, err e
 // FileName returns the filename.
 func (m *MediaFile) FileName() string {
 	return m.fileName
+}
+
+// BaseName returns the filename without path.
+func (m *MediaFile) BaseName() string {
+	return filepath.Base(m.fileName)
 }
 
 // SetFileName sets the filename to the given string.
@@ -346,6 +342,16 @@ func (m *MediaFile) RelativePath(directory string) string {
 		pathname = ""
 	}
 
+	// Remove hidden sub directory if exists.
+	if path.Base(pathname) == fs.HiddenPath {
+		pathname = path.Dir(pathname)
+	}
+
+	// Use empty string for current / root directory.
+	if pathname == "." || pathname == "/" {
+		pathname = ""
+	}
+
 	return pathname
 }
 
@@ -371,6 +377,16 @@ func (m *MediaFile) Base(stripSequence bool) string {
 // AbsBase returns the directory and base filename without any extensions.
 func (m *MediaFile) AbsBase(stripSequence bool) string {
 	return fs.AbsBase(m.FileName(), stripSequence)
+}
+
+// HiddenName returns the a filename with the same base name and a given extension in a hidden sub directory.
+func (m *MediaFile) HiddenName(fileExt string, stripSequence bool) string {
+	return fs.SubFileName(m.FileName(), fs.HiddenPath, fileExt, stripSequence)
+}
+
+// RelatedName returns the a filename with the same base name and a given extension in the same directory.
+func (m *MediaFile) RelatedName(fileExt string, stripSequence bool) string {
+	return m.AbsBase(stripSequence) + fileExt
 }
 
 // MimeType returns the mime type.
@@ -571,7 +587,7 @@ func (m *MediaFile) IsMedia() bool {
 	return m.IsJpeg() || m.IsVideo() || m.IsRaw() || m.IsHEIF() || m.IsImageOther()
 }
 
-// Jpeg returns a the JPEG version of an image or sidecar file (if exists).
+// Jpeg returns a the JPEG version of the media file (if exists).
 func (m *MediaFile) Jpeg() (*MediaFile, error) {
 	if m.IsJpeg() {
 		if !fs.FileExists(m.FileName()) {
@@ -581,7 +597,7 @@ func (m *MediaFile) Jpeg() (*MediaFile, error) {
 		return m, nil
 	}
 
-	jpegFilename := fs.TypeJpeg.Find(m.FileName(), false)
+	jpegFilename := fs.TypeJpeg.FindSub(m.FileName(), fs.HiddenPath, false)
 
 	if jpegFilename == "" {
 		return nil, fmt.Errorf("no jpeg found for %s", m.FileName())
@@ -590,13 +606,13 @@ func (m *MediaFile) Jpeg() (*MediaFile, error) {
 	return NewMediaFile(jpegFilename)
 }
 
-// HasJpeg returns true if this file has or is a jpeg media file.
+// ContainsJpeg returns true if this file has or is a jpeg media file.
 func (m *MediaFile) HasJpeg() bool {
 	if m.IsJpeg() {
 		return true
 	}
 
-	return fs.TypeJpeg.Find(m.FileName(), false) != ""
+	return fs.TypeJpeg.FindSub(m.FileName(), fs.HiddenPath, false) != ""
 }
 
 // HasJson returns true if this file has or is a json sidecar file.
@@ -605,25 +621,29 @@ func (m *MediaFile) HasJson() bool {
 		return true
 	}
 
-	return fs.TypeJson.Find(m.FileName(), false) != ""
+	return fs.TypeJson.FindSub(m.FileName(), fs.HiddenPath, false) != ""
 }
 
 func (m *MediaFile) decodeDimensions() error {
-	if !m.IsPhoto() {
+	if !m.IsMedia() {
 		return fmt.Errorf("not a photo: %s", m.FileName())
 	}
 
 	var width, height int
 
-	data, err := m.MetaData()
+	data := m.MetaData()
 
-	if err == nil {
+	if data.Error == nil {
 		width = data.Width
 		height = data.Height
 	}
 
 	if m.IsJpeg() {
 		file, err := os.Open(m.FileName())
+
+		if err != nil || file == nil {
+			return err
+		}
 
 		defer file.Close()
 
@@ -650,7 +670,7 @@ func (m *MediaFile) decodeDimensions() error {
 
 // Width return the width dimension of a MediaFile.
 func (m *MediaFile) Width() int {
-	if !m.IsPhoto() {
+	if !m.IsMedia() {
 		return 0
 	}
 
@@ -665,7 +685,7 @@ func (m *MediaFile) Width() int {
 
 // Height returns the height dimension of a MediaFile.
 func (m *MediaFile) Height() int {
-	if !m.IsPhoto() {
+	if !m.IsMedia() {
 		return 0
 	}
 
@@ -694,7 +714,7 @@ func (m *MediaFile) AspectRatio() float32 {
 
 // Orientation returns the orientation of a MediaFile.
 func (m *MediaFile) Orientation() int {
-	if data, err := m.MetaData(); err == nil {
+	if data := m.MetaData(); data.Error == nil {
 		return data.Orientation
 	}
 
@@ -748,8 +768,8 @@ func (m *MediaFile) ResampleDefault(thumbPath string, force bool) (err error) {
 
 	hash := m.Hash()
 
-	var originalImg *image.Image
-	var sourceImg *image.Image
+	var originalImg image.Image
+	var sourceImg image.Image
 	var sourceImgType string
 
 	for _, name := range thumb.DefaultTypes {
@@ -777,7 +797,7 @@ func (m *MediaFile) ResampleDefault(thumbPath string, force bool) (err error) {
 					return err
 				}
 
-				originalImg = &img
+				originalImg = img
 			}
 
 			if thumbType.Source != "" {

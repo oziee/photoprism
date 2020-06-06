@@ -16,10 +16,16 @@ import (
 	"github.com/photoprism/photoprism/internal/event"
 	"github.com/photoprism/photoprism/pkg/txt"
 
+	"github.com/jinzhu/inflection"
 	"github.com/jinzhu/gorm"
 )
 
 var log = event.Log
+
+const (
+	MySQL  = "mysql"
+	SQLite = "sqlite3"
+)
 
 // About 1km ('good enough' for now)
 const SearchRadius = 0.009
@@ -53,6 +59,11 @@ func UnscopedDb() *gorm.DB {
 	return entity.Db().Unscoped()
 }
 
+// DbDialect returns the sql dialect name.
+func DbDialect() string {
+	return Db().Dialect().GetName()
+}
+
 // LikeAny returns a where condition that matches any keyword in search.
 func LikeAny(col, search string) (where string) {
 	var wheres []string
@@ -69,22 +80,40 @@ func LikeAny(col, search string) (where string) {
 		} else {
 			wheres = append(wheres, fmt.Sprintf("%s = '%s'", col, w))
 		}
+
+		singular := inflection.Singular(w)
+
+		if singular != w {
+			wheres = append(wheres, fmt.Sprintf("%s = '%s'", col, singular))
+		}
 	}
 
 	return strings.Join(wheres, " OR ")
 }
 
 // AnySlug returns a where condition that matches any slug in search.
-func AnySlug(col, search string) (where string) {
+func AnySlug(col, search, sep string) (where string) {
 	if search == "" {
 		return ""
+	}
+
+	if sep == "" {
+		sep = " "
 	}
 
 	var wheres []string
 	var words []string
 
-	for _, w := range strings.Split(search, " ") {
-		words = append(words, slug.Make(strings.TrimSpace(w)))
+	for _, w := range strings.Split(search, sep) {
+		w = strings.TrimSpace(w)
+
+		words = append(words, slug.Make(w))
+
+		singular := inflection.Singular(w)
+
+		if singular != w {
+			words = append(words, slug.Make(singular))
+		}
 	}
 
 	if len(words) == 0 {
